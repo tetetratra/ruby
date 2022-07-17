@@ -8249,6 +8249,13 @@ rb_ary_deconstruct(VALUE ary)
     return ary;
 }
 
+static VALUE
+rb_ary_second(VALUE ary)
+{
+    return rb_ary_entry(ary, 1);
+}
+
+
 /*
  *  An \Array is an ordered, integer-indexed collection of objects, called _elements_.
  *  Any object (even another array) may be an array element,
@@ -8870,6 +8877,8 @@ Init_Array(void)
     rb_define_method(rb_cArray, "sum", rb_ary_sum, -1);
 
     rb_define_method(rb_cArray, "deconstruct", rb_ary_deconstruct, 0);
+
+    rb_define_method(rb_cArray, "second", rb_ary_second, 0);
 }
 
 #include "array.rbinc"
