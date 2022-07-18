@@ -21,6 +21,8 @@
 static VALUE rb_cBacktrace;
 static VALUE rb_cBacktraceLocation;
 
+static VALUE backtrace_to_location_ary(VALUE self);
+
 static VALUE
 id2str(ID id)
 {
@@ -122,6 +124,7 @@ typedef struct rb_backtrace_location_struct {
     const rb_iseq_t *iseq;
     const VALUE *pc;
     ID mid;
+    VALUE tail_call_log;
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -382,7 +385,7 @@ location_absolute_path_m(VALUE self)
 }
 
 static VALUE
-location_format(VALUE file, int lineno, VALUE name)
+location_format(VALUE file, int lineno, VALUE name, int tail_call_log)
 {
     VALUE s = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
     if (lineno != 0) {
@@ -394,6 +397,7 @@ location_format(VALUE file, int lineno, VALUE name)
     }
     else {
 	rb_str_catf(s, "`%s'", RSTRING_PTR(name));
+	rb_str_catf(s, " *%d", tail_call_log);
     }
     return s;
 }
@@ -403,6 +407,7 @@ location_to_str(rb_backtrace_location_t *loc)
 {
     VALUE file, name;
     int lineno;
+    int tail_call_log;
 
     switch (loc->type) {
       case LOCATION_TYPE_ISEQ:
@@ -425,8 +430,9 @@ location_to_str(rb_backtrace_location_t *loc)
       default:
 	rb_bug("location_to_str: unreachable");
     }
+    tail_call_log = FIX2INT(loc->tail_call_log);
 
-    return location_format(file, lineno, name);
+    return location_format(file, lineno, name, tail_call_log);
 }
 
 /*
@@ -592,6 +598,8 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
     VALUE btobj = backtrace_alloc(rb_cBacktrace);
     rb_backtrace_location_t *loc = NULL;
     unsigned long cfunc_counter = 0;
+
+
     GetCoreDataFromValue(btobj, rb_backtrace_t, bt);
 
     // In the case the thread vm_stack or cfp is not initialized, there is no backtrace.
@@ -627,8 +635,11 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         return btobj;
     }
 
+    /* rb_p(rb_str_new2("before for")); */
+    /* rb_p(backtrace_to_location_ary(btobj)); */
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
         if (cfp->iseq) {
+            /* rb_p(rb_str_new2("for if(cfp->iseq)")); */
             if (cfp->pc) {
                 if (start_frame > 0) {
                     start_frame--;
@@ -636,10 +647,14 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 else if (!skip_internal || !is_internal_location(cfp)) {
                     const rb_iseq_t *iseq = cfp->iseq;
                     const VALUE *pc = cfp->pc;
+                    // ここで追加している
+                    // 次のバックトレースのアドレスをlocに入れている(その後++)
                     loc = &bt->backtrace[bt->backtrace_size++];
                     loc->type = LOCATION_TYPE_ISEQ;
                     loc->iseq = iseq;
                     loc->pc = pc;
+                    loc->tail_call_log = cfp->tail_call_log;
+                    /* rb_p(backtrace_to_location_ary(btobj)); */
                     bt_update_cfunc_loc(cfunc_counter, loc-1, iseq, pc);
                     if (do_yield) {
                         bt_yield_loc(loc - cfunc_counter, cfunc_counter+1, btobj);
@@ -647,8 +662,10 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     cfunc_counter = 0;
                 }
             }
+            /* rb_p(backtrace_to_location_ary(btobj)); */
         }
         else {
+            /* rb_p(rb_str_new2("for else(cfp->iseq)")); */
             VM_ASSERT(RUBYVM_CFUNC_FRAME_P(cfp));
             if (start_frame > 0) {
                 start_frame--;
@@ -661,6 +678,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 loc->mid = rb_vm_frame_method_entry(cfp)->def->original_id;
                 cfunc_counter++;
             }
+            /* rb_p(backtrace_to_location_ary(btobj)); */
         }
     }
 
@@ -677,6 +695,8 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
     }
 
     if (start_too_large) *start_too_large = (start_frame > 0 ? -1 : 0);
+
+    /* rb_p(rb_str_new2("----------------- return -----------------")); */
     return btobj;
 }
 
@@ -1146,7 +1166,7 @@ ec_backtrace_to_ary(const rb_execution_context_t *ec, int argc, const VALUE *arg
     if (to_str) {
         r = backtrace_to_str_ary(btval);
     }
-    else {
+    else { // こっち
         r = backtrace_to_location_ary(btval);
     }
     RB_GC_GUARD(btval);
