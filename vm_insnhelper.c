@@ -394,7 +394,7 @@ vm_push_frame(rb_execution_context_t *ec,
 #endif
         .jit_return = NULL,
 
-        .tail_call_log = INT2FIX(0)
+        .tail_call_log_size = INT2FIX(0)
     };
 
     ec->cfp = cfp;
@@ -2665,7 +2665,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
     vm_pop_frame(ec, cfp, cfp->ep);
     cfp = ec->cfp;
 
-    cfp->tail_call_log = INT2FIX(FIX2INT(cfp->tail_call_log) + 1);
+    cfp->tail_call_log_size = INT2FIX(FIX2INT(cfp->tail_call_log_size) + 1);
 
     sp_orig = sp = cfp->sp;
 

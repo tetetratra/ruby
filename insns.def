@@ -923,8 +923,8 @@ leave
 	}
     }
 
-    // vm_pop_frame前後でなぜかGET_CFP()が返すcfpが変わらないので、pop前にtail_call_logのリセットを行っている
-    RUBY_VM_PREVIOUS_CONTROL_FRAME(GET_CFP())->tail_call_log = INT2FIX(0);
+    // vm_pop_frame前後でなぜかGET_CFP()が返すcfpが変わらないので、pop前にtail_call_log_sizeのリセットを行っている
+    RUBY_VM_PREVIOUS_CONTROL_FRAME(GET_CFP())->tail_call_log_size = INT2FIX(0);
     if (vm_pop_frame(ec, GET_CFP(), GET_EP())) {
 #if OPT_CALL_THREADED_CODE
 	rb_ec_thread_ptr(ec)->retval = val;

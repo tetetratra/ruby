@@ -124,7 +124,7 @@ typedef struct rb_backtrace_location_struct {
     const rb_iseq_t *iseq;
     const VALUE *pc;
     ID mid;
-    VALUE tail_call_log;
+    VALUE tail_call_log_size;
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -385,7 +385,7 @@ location_absolute_path_m(VALUE self)
 }
 
 static VALUE
-location_format(VALUE file, int lineno, VALUE name, int tail_call_log)
+location_format(VALUE file, int lineno, VALUE name, int tail_call_log_size)
 {
     VALUE s = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
     if (lineno != 0) {
@@ -397,7 +397,7 @@ location_format(VALUE file, int lineno, VALUE name, int tail_call_log)
     }
     else {
 	rb_str_catf(s, "`%s'", RSTRING_PTR(name));
-	rb_str_catf(s, " *%d", tail_call_log);
+	rb_str_catf(s, " *%d", tail_call_log_size);
     }
     return s;
 }
@@ -407,7 +407,6 @@ location_to_str(rb_backtrace_location_t *loc)
 {
     VALUE file, name;
     int lineno;
-    int tail_call_log;
 
     switch (loc->type) {
       case LOCATION_TYPE_ISEQ:
@@ -430,9 +429,8 @@ location_to_str(rb_backtrace_location_t *loc)
       default:
 	rb_bug("location_to_str: unreachable");
     }
-    tail_call_log = FIX2INT(loc->tail_call_log);
 
-    return location_format(file, lineno, name, tail_call_log);
+    return location_format(file, lineno, name, FIX2INT(loc->tail_call_log_size));
 }
 
 /*
@@ -653,7 +651,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     loc->type = LOCATION_TYPE_ISEQ;
                     loc->iseq = iseq;
                     loc->pc = pc;
-                    loc->tail_call_log = cfp->tail_call_log;
+                    loc->tail_call_log_size = cfp->tail_call_log_size;
                     /* rb_p(backtrace_to_location_ary(btobj)); */
                     bt_update_cfunc_loc(cfunc_counter, loc-1, iseq, pc);
                     if (do_yield) {

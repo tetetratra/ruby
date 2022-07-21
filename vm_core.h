@@ -838,7 +838,8 @@ typedef struct rb_control_frame_struct {
     // Return address for YJIT code
     void *jit_return;
 
-    VALUE tail_call_log;
+    VALUE tail_call_log_size;
+    /* VALUE tail_call_log; */
 } rb_control_frame_t;
 
 extern const rb_data_type_t ruby_threadptr_data_type;
