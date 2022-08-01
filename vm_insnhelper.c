@@ -394,7 +394,8 @@ vm_push_frame(rb_execution_context_t *ec,
 #endif
         .jit_return = NULL,
 
-        .tail_call_log_size = INT2FIX(0)
+        .tail_call_log_size = INT2FIX(0),
+        .tail_call_log = Qnil
     };
 
     ec->cfp = cfp;
@@ -2662,10 +2663,24 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 	}
     }
 
+
     vm_pop_frame(ec, cfp, cfp->ep);
+    VALUE log = rb_str_new(0,0);
+    rb_str_concat(log, rb_iseq_path(cfp->iseq));
+    rb_str_concat(log, rb_str_new2("   :in `"));
+    rb_str_concat(log, ISEQ_BODY(cfp->iseq)->location.label);
+    rb_str_concat(log, rb_str_new2("' (tail-call log)"));
+    rb_str_concat(log, rb_str_new2("\n"));
+
     cfp = ec->cfp;
 
     cfp->tail_call_log_size = INT2FIX(FIX2INT(cfp->tail_call_log_size) + 1);
+    if(NIL_P(cfp->tail_call_log)) {
+        cfp->tail_call_log = rb_ary_new3(1, log);
+    } else {
+        rb_ary_push(cfp->tail_call_log, log);
+    }
+
 
     sp_orig = sp = cfp->sp;
 

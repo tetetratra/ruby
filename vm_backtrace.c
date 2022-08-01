@@ -125,6 +125,7 @@ typedef struct rb_backtrace_location_struct {
     const VALUE *pc;
     ID mid;
     VALUE tail_call_log_size;
+    VALUE tail_call_log;
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -385,9 +386,11 @@ location_absolute_path_m(VALUE self)
 }
 
 static VALUE
-location_format(VALUE file, int lineno, VALUE name, int tail_call_log_size)
+location_format(VALUE file, int lineno, VALUE name, VALUE tail_call_log_str)
 {
-    VALUE s = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
+    VALUE s = rb_str_new(0,0);
+    rb_str_concat(s, tail_call_log_str);
+    rb_str_concat(s, rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file)));
     if (lineno != 0) {
 	rb_str_catf(s, ":%d", lineno);
     }
@@ -397,7 +400,6 @@ location_format(VALUE file, int lineno, VALUE name, int tail_call_log_size)
     }
     else {
 	rb_str_catf(s, "`%s'", RSTRING_PTR(name));
-	rb_str_catf(s, " *%d", tail_call_log_size);
     }
     return s;
 }
@@ -429,8 +431,13 @@ location_to_str(rb_backtrace_location_t *loc)
       default:
 	rb_bug("location_to_str: unreachable");
     }
-
-    return location_format(file, lineno, name, FIX2INT(loc->tail_call_log_size));
+    VALUE tail_call_log_str = rb_str_new(0,0);
+    if(!NIL_P(loc->tail_call_log)) {
+        for(long i = RARRAY_LEN(loc->tail_call_log) - 1; 0 <= i ; i--) {
+            rb_str_concat(tail_call_log_str, rb_ary_entry(loc->tail_call_log, i));
+        }
+    }
+    return location_format(file, lineno, name, tail_call_log_str);
 }
 
 /*
@@ -633,11 +640,8 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         return btobj;
     }
 
-    /* rb_p(rb_str_new2("before for")); */
-    /* rb_p(backtrace_to_location_ary(btobj)); */
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
         if (cfp->iseq) {
-            /* rb_p(rb_str_new2("for if(cfp->iseq)")); */
             if (cfp->pc) {
                 if (start_frame > 0) {
                     start_frame--;
@@ -652,7 +656,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     loc->iseq = iseq;
                     loc->pc = pc;
                     loc->tail_call_log_size = cfp->tail_call_log_size;
-                    /* rb_p(backtrace_to_location_ary(btobj)); */
+                    loc->tail_call_log = cfp->tail_call_log;
                     bt_update_cfunc_loc(cfunc_counter, loc-1, iseq, pc);
                     if (do_yield) {
                         bt_yield_loc(loc - cfunc_counter, cfunc_counter+1, btobj);
@@ -660,10 +664,8 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     cfunc_counter = 0;
                 }
             }
-            /* rb_p(backtrace_to_location_ary(btobj)); */
         }
         else {
-            /* rb_p(rb_str_new2("for else(cfp->iseq)")); */
             VM_ASSERT(RUBYVM_CFUNC_FRAME_P(cfp));
             if (start_frame > 0) {
                 start_frame--;
@@ -676,7 +678,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 loc->mid = rb_vm_frame_method_entry(cfp)->def->original_id;
                 cfunc_counter++;
             }
-            /* rb_p(backtrace_to_location_ary(btobj)); */
         }
     }
 
@@ -694,7 +695,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
 
     if (start_too_large) *start_too_large = (start_frame > 0 ? -1 : 0);
 
-    /* rb_p(rb_str_new2("----------------- return -----------------")); */
     return btobj;
 }
 
