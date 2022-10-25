@@ -7,6 +7,7 @@
   Copyright (C) 2007 Koichi Sasada
 
 **********************************************************************/
+#include "vm_debug.h"
 
 #include "ruby/internal/config.h"
 
@@ -30,6 +31,48 @@
 #ifndef MJIT_HEADER
 #include "insns_info.inc"
 #endif
+
+
+
+typedef struct tail_call_optimization_log_struct {
+    int num;
+    struct tail_call_optimization_log_struct *prev;
+    struct tail_call_optimization_log_struct *next;
+} tail_call_optimization_log_t;
+
+tail_call_optimization_log_t tail_call_optimization_log = { 0, NULL, NULL };
+
+const tail_call_optimization_log_t *tail_call_optimization_log_head_p = &tail_call_optimization_log;
+tail_call_optimization_log_t *tail_call_optimization_log_tail_p = &tail_call_optimization_log;
+
+static void print_tail_call_optimization_log(void) {
+    tail_call_optimization_log_t *tmp = tail_call_optimization_log_head_p;
+    printf("tail_call_optimization_log: |");
+    while (tmp != NULL) {
+        printf("->%d", tmp->num);
+        tmp = tmp->next;
+    }
+    printf("\n");
+}
+static void push_tail_call_optimization_log(void) {
+    tail_call_optimization_log_t *next_tcol_p = malloc(sizeof(tail_call_optimization_log_t));
+    next_tcol_p->num = 0;
+    next_tcol_p->next = NULL;
+    next_tcol_p->prev = tail_call_optimization_log_tail_p;
+    tail_call_optimization_log_tail_p->next = next_tcol_p;
+    tail_call_optimization_log_tail_p = next_tcol_p;
+
+}
+static void pop_tail_call_optimization_log(void) {
+    tail_call_optimization_log_t *tmp_p = tail_call_optimization_log_tail_p;
+    tail_call_optimization_log_tail_p = tail_call_optimization_log_tail_p->prev;
+    tail_call_optimization_log_tail_p->next = NULL;
+    free(tmp_p);
+}
+static void count_up_tail_call_optimization_log(void) {
+    tail_call_optimization_log_tail_p->num += 1;
+}
+
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
 extern void rb_method_definition_set(const rb_method_entry_t *me, rb_method_definition_t *def, void *opts);
@@ -359,6 +402,9 @@ vm_push_frame(rb_execution_context_t *ec,
               int local_size,
               int stack_max)
 {
+    push_tail_call_optimization_log();
+    print_tail_call_optimization_log();
+
     rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
 
     vm_check_frame(type, specval, cref_or_me, iseq);
@@ -407,6 +453,9 @@ vm_push_frame(rb_execution_context_t *ec,
 static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
+    pop_tail_call_optimization_log();
+    print_tail_call_optimization_log();
+
     VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
 
     if (VM_CHECK_MODE >= 4) rb_gc_verify_internal_consistency();
@@ -2664,6 +2713,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
     }
 
     vm_pop_frame(ec, cfp, cfp->ep);
+    count_up_tail_call_optimization_log();
     cfp = ec->cfp;
 
     sp_orig = sp = cfp->sp;
