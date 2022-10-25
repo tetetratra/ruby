@@ -7,10 +7,12 @@
   Copyright (C) 2007 Koichi Sasada
 
 **********************************************************************/
-
 #include "ruby/internal/config.h"
 
 #include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
 
 #include "constant.h"
 #include "debug_counter.h"
@@ -30,6 +32,10 @@
 #ifndef MJIT_HEADER
 #include "insns_info.inc"
 #endif
+
+#include "vm_debug.h"
+#include "vm_backtrace.h"
+#include "tailcall.h"
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
 extern void rb_method_definition_set(const rb_method_entry_t *me, rb_method_definition_t *def, void *opts);
@@ -347,6 +353,45 @@ STATIC_ASSERT(VM_ENV_DATA_INDEX_ME_CREF, VM_ENV_DATA_INDEX_ME_CREF == -2);
 STATIC_ASSERT(VM_ENV_DATA_INDEX_SPECVAL, VM_ENV_DATA_INDEX_SPECVAL == -1);
 STATIC_ASSERT(VM_ENV_DATA_INDEX_FLAGS,   VM_ENV_DATA_INDEX_FLAGS   == -0);
 
+#define VM_PUSH_FRAME_BODY \
+    do { \
+    rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp); \
+    vm_check_frame(type, specval, cref_or_me, iseq); \
+    VM_ASSERT(local_size >= 0); \
+    /* check stack overflow */ \
+    CHECK_VM_STACK_OVERFLOW0(cfp, sp, local_size + stack_max); \
+    vm_check_canary(ec, sp); \
+    /* setup vm value stack */ \
+    /* initialize local variables */ \
+    for (int i=0; i < local_size; i++) { \
+        *sp++ = Qnil; \
+    } \
+    /* setup ep with managing data */ \
+    *sp++ = cref_or_me; /* ep[-2] / Qnil or T_IMEMO(cref) or T_IMEMO(ment) */ \
+    *sp++ = specval     /* ep[-1] / block handler or prev env ptr */; \
+    *sp++ = type;       /* ep[-0] / ENV_FLAGS */ \
+    /* setup new frame */ \
+    *cfp = (const struct rb_control_frame_struct) { \
+        .pc         = pc, \
+        .sp         = sp, \
+        .iseq       = iseq, \
+        .self       = self, \
+        .ep         = sp - 1, \
+        .block_code = NULL, \
+        .__bp__     = sp, /* Store initial value of ep as bp to skip calculation cost of bp on JIT cancellation. */ \
+/* #if VM_DEBUG_BP_CHECK    FIXME: #define マクロ内で #if を使う方法がわからないのでコメントアウトしている */ \
+/*         .bp_check   = sp, */ \
+/* #endif */ \
+        .jit_return = NULL \
+    }; \
+    ec->cfp = cfp; \
+ \
+    if (VMDEBUG == 2) { \
+        SDR(); \
+    } \
+    vm_push_frame_debug_counter_inc(ec, cfp, type); \
+    } while (0)
+
 static void
 vm_push_frame(rb_execution_context_t *ec,
 	      const rb_iseq_t *iseq,
@@ -359,63 +404,51 @@ vm_push_frame(rb_execution_context_t *ec,
 	      int local_size,
 	      int stack_max)
 {
-    rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
-
-    vm_check_frame(type, specval, cref_or_me, iseq);
-    VM_ASSERT(local_size >= 0);
-
-    /* check stack overflow */
-    CHECK_VM_STACK_OVERFLOW0(cfp, sp, local_size + stack_max);
-    vm_check_canary(ec, sp);
-
-    /* setup vm value stack */
-
-    /* initialize local variables */
-    for (int i=0; i < local_size; i++) {
-	*sp++ = Qnil;
-    }
-
-    /* setup ep with managing data */
-    *sp++ = cref_or_me; /* ep[-2] / Qnil or T_IMEMO(cref) or T_IMEMO(ment) */
-    *sp++ = specval     /* ep[-1] / block handler or prev env ptr */;
-    *sp++ = type;       /* ep[-0] / ENV_FLAGS */
-
-    /* setup new frame */
-    *cfp = (const struct rb_control_frame_struct) {
-        .pc         = pc,
-        .sp         = sp,
-        .iseq       = iseq,
-        .self       = self,
-        .ep         = sp - 1,
-        .block_code = NULL,
-        .__bp__     = sp, /* Store initial value of ep as bp to skip calculation cost of bp on JIT cancellation. */
-#if VM_DEBUG_BP_CHECK
-        .bp_check   = sp,
-#endif
-        .jit_return = NULL
-    };
-
-    ec->cfp = cfp;
-
-    if (VMDEBUG == 2) {
-	SDR();
-    }
-    vm_push_frame_debug_counter_inc(ec, cfp, type);
+    tcl_push(iseq, pc);
+    /* tcl_print(); */
+    VM_PUSH_FRAME_BODY;
 }
+
+static void
+vm_push_frame_without_tcl_push(rb_execution_context_t *ec,
+              const rb_iseq_t *iseq,
+              VALUE type,
+              VALUE self,
+              VALUE specval,
+              VALUE cref_or_me,
+              const VALUE *pc,
+              VALUE *sp,
+              int local_size,
+              int stack_max) {
+    /* tcl_print(); */
+    VM_PUSH_FRAME_BODY;
+}
+
+
+#define VM_POP_FRAME_BODY \
+    do { \
+    VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS]; \
+    if (VM_CHECK_MODE >= 4) rb_gc_verify_internal_consistency(); \
+    if (VMDEBUG == 2)       SDR(); \
+    RUBY_VM_CHECK_INTS(ec); \
+    ec->cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp); \
+    return flags & VM_FRAME_FLAG_FINISH; \
+    } while (0)
 
 /* return TRUE if the frame is finished */
 static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
-    VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
+    tcl_pop();
+    /* tcl_print(); */
+    VM_POP_FRAME_BODY;
+}
 
-    if (VM_CHECK_MODE >= 4) rb_gc_verify_internal_consistency();
-    if (VMDEBUG == 2)       SDR();
-
-    RUBY_VM_CHECK_INTS(ec);
-    ec->cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
-
-    return flags & VM_FRAME_FLAG_FINISH;
+static inline int
+vm_pop_frame_without_tcl_pop(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
+{
+    /* tcl_print(); */
+    VM_POP_FRAME_BODY;
 }
 
 MJIT_STATIC void
@@ -2624,9 +2657,9 @@ vm_call_iseq_setup_normal(rb_execution_context_t *ec, rb_control_frame_t *cfp, s
                           int opt_pc, int param_size, int local_size)
 {
     const rb_iseq_t *iseq = def_iseq_ptr(me->def);
-    VALUE *argv = cfp->sp - calling->argc;
+    VALUE *argv = cfp->sp - calling->argc; // NOTE: pushされている引数の個数だけ引いている
     VALUE *sp = argv + param_size;
-    cfp->sp = argv - 1 /* recv */;
+    cfp->sp = argv - 1 /* recv */; // NOTE: レシーバの分も1個引いている
 
     vm_push_frame(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL, calling->recv,
                   calling->block_handler, (VALUE)me,
@@ -2660,7 +2693,11 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 	}
     }
 
-    vm_pop_frame(ec, cfp, cfp->ep);
+    tcl_record(cfp->iseq, cfp->pc);
+    vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
+    /* tcl_print(); */
+    tcl_change_top(iseq, cfp->pc);
+
     cfp = ec->cfp;
 
     sp_orig = sp = cfp->sp;
@@ -2674,11 +2711,11 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 	*sp++ = src_argv[i];
     }
 
-    vm_push_frame(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
-		  calling->recv, calling->block_handler, (VALUE)me,
-		  iseq->body->iseq_encoded + opt_pc, sp,
-		  iseq->body->local_table_size - iseq->body->param.size,
-		  iseq->body->stack_max);
+    vm_push_frame_without_tcl_push(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
+                  calling->recv, calling->block_handler, (VALUE)me,
+                  ISEQ_BODY(iseq)->iseq_encoded + opt_pc, sp,
+                  ISEQ_BODY(iseq)->local_table_size - ISEQ_BODY(iseq)->param.size,
+                  ISEQ_BODY(iseq)->stack_max);
 
     cfp->sp = sp_orig;
 
@@ -4748,7 +4785,7 @@ vm_sendish(
     switch (method_explorer) {
       case mexp_search_method:
         calling.cc = cc = vm_search_method_fastpath((VALUE)reg_cfp->iseq, cd, CLASS_OF(recv));
-        val = vm_cc_call(cc)(ec, GET_CFP(), &calling);
+        val = vm_cc_call(cc)(ec, GET_CFP(), &calling); // NOTE: vm_cc_call(cc) で得た関数を(ec, GET_CFP(), &calling)で呼び出している
         break;
       case mexp_search_super:
         calling.cc = cc = vm_search_super_method(reg_cfp, cd, recv);

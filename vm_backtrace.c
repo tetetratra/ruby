@@ -8,7 +8,6 @@
   Copyright (C) 1993-2012 Yukihiro Matsumoto
 
 **********************************************************************/
-
 #include "eval_intern.h"
 #include "internal.h"
 #include "internal/error.h"
@@ -17,6 +16,9 @@
 #include "ruby/debug.h"
 #include "ruby/encoding.h"
 #include "vm_core.h"
+
+#include "vm_debug.h"
+#include "tailcall.h"
 
 static VALUE rb_cBacktrace;
 static VALUE rb_cBacktraceLocation;
@@ -33,7 +35,11 @@ id2str(ID id)
 #define BACKTRACE_START 0
 #define ALL_BACKTRACE_LINES -1
 
-inline static int
+#define ESCAPE_SEQUENCES_RED    "\x1B[31;1m"
+#define ESCAPE_SEQUENCES_GREEN  "\x1B[32;1m"
+#define ESCAPE_SEQUENCES_RESET  "\x1B[37;m"
+
+int
 calc_pos(const rb_iseq_t *iseq, const VALUE *pc, int *lineno, int *node_id)
 {
     VM_ASSERT(iseq);
@@ -77,7 +83,7 @@ calc_pos(const rb_iseq_t *iseq, const VALUE *pc, int *lineno, int *node_id)
     }
 }
 
-inline static int
+int
 calc_lineno(const rb_iseq_t *iseq, const VALUE *pc)
 {
     int lineno;
@@ -115,13 +121,18 @@ rb_vm_get_sourceline(const rb_control_frame_t *cfp)
 
 typedef struct rb_backtrace_location_struct {
     enum LOCATION_TYPE {
-	LOCATION_TYPE_ISEQ = 1,
-	LOCATION_TYPE_CFUNC,
+        LOCATION_TYPE_ISEQ = 1,
+        LOCATION_TYPE_CFUNC,
+        LOCATION_TYPE_TRUNCATED,
     } type;
 
     const rb_iseq_t *iseq;
     const VALUE *pc;
     ID mid;
+
+    bool tailcall;
+    int truncated_count;
+    char truncated_by[1024];
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -382,7 +393,7 @@ location_absolute_path_m(VALUE self)
 }
 
 static VALUE
-location_format(VALUE file, int lineno, VALUE name)
+location_format(VALUE file, int lineno, VALUE name, bool tailcall)
 {
     VALUE s = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
     if (lineno != 0) {
@@ -395,13 +406,18 @@ location_format(VALUE file, int lineno, VALUE name)
     else {
 	rb_str_catf(s, "`%s'", RSTRING_PTR(name));
     }
+    if (tailcall) {
+        rb_str_catf(s, " %s(tailcall)%s",
+                ESCAPE_SEQUENCES_GREEN,
+                ESCAPE_SEQUENCES_RESET);
+    }
     return s;
 }
 
 static VALUE
 location_to_str(rb_backtrace_location_t *loc)
 {
-    VALUE file, name;
+    VALUE file, name, s;
     int lineno;
 
     switch (loc->type) {
@@ -421,12 +437,22 @@ location_to_str(rb_backtrace_location_t *loc)
             lineno = 0;
 	}
         name = rb_id2str(loc->mid);
-	break;
+        break;
+      case LOCATION_TYPE_TRUNCATED:
+        s = rb_str_new2(" ");
+        rb_str_cat_cstr(s, ESCAPE_SEQUENCES_RED); // 赤開始
+        rb_str_catf(s,
+            ESCAPE_SEQUENCES_RED"(... %d tailcalls truncated by `%s`...)"ESCAPE_SEQUENCES_RESET,
+            loc->truncated_count,
+            loc->truncated_by
+        );
+        return s;
+        break;
       default:
 	rb_bug("location_to_str: unreachable");
     }
 
-    return location_format(file, lineno, name);
+    return location_format(file, lineno, name, loc->tailcall);
 }
 
 /*
@@ -610,12 +636,15 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         }
     }
 
+    num_frames += tcl_log_size(); // FIXME: caller_locations(n)のnが0以外のケースも考慮する
+
     bt->backtrace = ZALLOC_N(rb_backtrace_location_t, num_frames);
     bt->backtrace_size = 0;
     if (num_frames == 0) {
         if (start_too_large) *start_too_large = 0;
         return btobj;
     }
+    tcl_frame_t *f = get_tcl_frame_tail();
 
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
         if (cfp->iseq) {
@@ -630,6 +659,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     loc->type = LOCATION_TYPE_ISEQ;
                     loc->iseq = iseq;
                     loc->pc = pc;
+                    loc->tailcall = false;
                     bt_update_cfunc_loc(cfunc_counter, loc-1, iseq, pc);
                     cfunc_counter = 0;
                 }
@@ -644,10 +674,31 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 loc->type = LOCATION_TYPE_CFUNC;
                 loc->iseq = NULL;
                 loc->pc = NULL;
+                loc->tailcall = false;
                 loc->mid = rb_vm_frame_method_entry(cfp)->def->original_id;
                 cfunc_counter++;
             }
         }
+
+        for (
+            tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
+            tailcall_method != NULL;
+            tailcall_method = tailcall_method->prev
+        ) {
+            bool truncated = tailcall_method->iseq == NULL;
+            loc = &bt->backtrace[bt->backtrace_size++];
+            loc->type = truncated
+                        ? LOCATION_TYPE_TRUNCATED
+                        : LOCATION_TYPE_ISEQ;
+            loc->iseq = tailcall_method->iseq;
+            loc->pc = tailcall_method->pc;
+            loc->tailcall = true;
+            if (truncated) {
+                loc->truncated_count = tailcall_method->truncated_count;
+                strcpy(loc->truncated_by, tailcall_method->truncated_by);
+            }
+        }
+        f = f->prev;
     }
 
     if (cfunc_counter > 0) {
