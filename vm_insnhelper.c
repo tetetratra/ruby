@@ -12,6 +12,7 @@
 #include "ruby/internal/config.h"
 
 #include <math.h>
+#include <stdlib.h>
 
 #include "constant.h"
 #include "debug_counter.h"
@@ -32,15 +33,22 @@
 #include "insns_info.inc"
 #endif
 
-
+typedef struct method_name_struct {
+    char *name;
+    struct method_name_struct *prev;
+    struct method_name_struct *next;
+} method_name_t;
 
 typedef struct tail_call_optimization_log_struct {
     int num;
+    method_name_t *method_names_head;
+    method_name_t *method_names_tail;
     struct tail_call_optimization_log_struct *prev;
     struct tail_call_optimization_log_struct *next;
 } tail_call_optimization_log_t;
 
-tail_call_optimization_log_t tail_call_optimization_log = { 0, NULL, NULL };
+method_name_t method_name = { "", NULL, NULL };
+tail_call_optimization_log_t tail_call_optimization_log = { 0, &method_name, &method_name, NULL, NULL };
 
 const tail_call_optimization_log_t *tail_call_optimization_log_head_p = &tail_call_optimization_log;
 tail_call_optimization_log_t *tail_call_optimization_log_tail_p = &tail_call_optimization_log;
@@ -48,8 +56,17 @@ tail_call_optimization_log_t *tail_call_optimization_log_tail_p = &tail_call_opt
 static void print_tail_call_optimization_log(void) {
     tail_call_optimization_log_t *tmp = tail_call_optimization_log_head_p;
     printf("tail_call_optimization_log: |");
-    while (tmp != NULL) {
+    while (1) {
         printf("->%d", tmp->num);
+
+        method_name_t *m = tmp->method_names_head;
+        while (1) {
+            printf("%s,", m->name);
+            if (m->next == NULL) { break; }
+            m = m->next;
+        }
+
+        if (tmp->next == NULL) break;
         tmp = tmp->next;
     }
     printf("\n");
@@ -59,6 +76,13 @@ static void push_tail_call_optimization_log(void) {
     next_tcol_p->num = 0;
     next_tcol_p->next = NULL;
     next_tcol_p->prev = tail_call_optimization_log_tail_p;
+    method_name_t *method_name = malloc(sizeof(method_name_t));
+    method_name->name = "";
+    method_name->prev = NULL;
+    method_name->next = NULL;
+    next_tcol_p->method_names_head = method_name;
+    next_tcol_p->method_names_tail = method_name;
+
     tail_call_optimization_log_tail_p->next = next_tcol_p;
     tail_call_optimization_log_tail_p = next_tcol_p;
 
@@ -69,8 +93,17 @@ static void pop_tail_call_optimization_log(void) {
     tail_call_optimization_log_tail_p->next = NULL;
     free(tmp_p);
 }
-static void count_up_tail_call_optimization_log(void) {
+static void count_up_tail_call_optimization_log(char *method_name) {
+    printf("method_name: %s\n", method_name);
     tail_call_optimization_log_tail_p->num += 1;
+
+    method_name_t *new_method_name = malloc(sizeof(method_name_t));
+    new_method_name->name = method_name;
+    new_method_name->prev = tail_call_optimization_log_tail_p->method_names_tail;
+    new_method_name->next = NULL;
+
+    tail_call_optimization_log_tail_p->method_names_tail->next = new_method_name;
+    tail_call_optimization_log_tail_p->method_names_tail = new_method_name;
 }
 
 
@@ -2676,9 +2709,9 @@ vm_call_iseq_setup_normal(rb_execution_context_t *ec, rb_control_frame_t *cfp, s
                           int opt_pc, int param_size, int local_size)
 {
     const rb_iseq_t *iseq = def_iseq_ptr(me->def);
-    VALUE *argv = cfp->sp - calling->argc;
+    VALUE *argv = cfp->sp - calling->argc; // NOTE: pushされている引数の個数だけ引いている
     VALUE *sp = argv + param_size;
-    cfp->sp = argv - 1 /* recv */;
+    cfp->sp = argv - 1 /* recv */; // NOTE: レシーバの分も1個引いている
 
     vm_push_frame(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL, calling->recv,
                   calling->block_handler, (VALUE)me,
@@ -2713,7 +2746,9 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
     }
 
     vm_pop_frame(ec, cfp, cfp->ep);
-    count_up_tail_call_optimization_log();
+    VALUE method_name = ISEQ_BODY(iseq)->location.label;
+    count_up_tail_call_optimization_log(StringValuePtr(method_name));
+
     cfp = ec->cfp;
 
     sp_orig = sp = cfp->sp;
