@@ -41,6 +41,7 @@ typedef struct method_name_struct {
 
 typedef struct tail_call_optimization_log_struct {
     int num;
+    char *name;
     method_name_t *method_names_head;
     method_name_t *method_names_tail;
     struct tail_call_optimization_log_struct *prev;
@@ -48,62 +49,76 @@ typedef struct tail_call_optimization_log_struct {
 } tail_call_optimization_log_t;
 
 method_name_t method_name = { "", NULL, NULL };
-tail_call_optimization_log_t tail_call_optimization_log = { 0, &method_name, &method_name, NULL, NULL };
-
-const tail_call_optimization_log_t *tail_call_optimization_log_head_p = &tail_call_optimization_log;
-tail_call_optimization_log_t *tail_call_optimization_log_tail_p = &tail_call_optimization_log;
+tail_call_optimization_log_t tail_call_optimization_log = { 0, "ROOT", &method_name, &method_name, NULL, NULL };
+tail_call_optimization_log_t *tail_call_optimization_log_head = &tail_call_optimization_log,
+                             *tail_call_optimization_log_tail = &tail_call_optimization_log;
 
 static void print_tail_call_optimization_log(void) {
-    tail_call_optimization_log_t *tmp = tail_call_optimization_log_head_p;
-    printf("tail_call_optimization_log: |");
+    tail_call_optimization_log_t *tmp = tail_call_optimization_log_head;
+    printf("|");
     while (1) {
-        printf("->%d", tmp->num);
-
+        printf("-> %s ", tmp->name);
+        /* printf("=>%d", tmp->num); */
         method_name_t *m = tmp->method_names_head;
         while (1) {
-            printf("%s,", m->name);
-            if (m->next == NULL) { break; }
+            if (m->next == NULL) break;
+            printf("=> %s ", m->name);
             m = m->next;
         }
-
         if (tmp->next == NULL) break;
         tmp = tmp->next;
     }
     printf("\n");
 }
-static void push_tail_call_optimization_log(void) {
-    tail_call_optimization_log_t *next_tcol_p = malloc(sizeof(tail_call_optimization_log_t));
-    next_tcol_p->num = 0;
-    next_tcol_p->next = NULL;
-    next_tcol_p->prev = tail_call_optimization_log_tail_p;
-    method_name_t *method_name = malloc(sizeof(method_name_t));
-    method_name->name = "";
-    method_name->prev = NULL;
-    method_name->next = NULL;
-    next_tcol_p->method_names_head = method_name;
-    next_tcol_p->method_names_tail = method_name;
-
-    tail_call_optimization_log_tail_p->next = next_tcol_p;
-    tail_call_optimization_log_tail_p = next_tcol_p;
+static void push_tail_call_optimization_log(char *method_name) {
+    // allocate
+    method_name_t *m = (method_name_t*)malloc(sizeof(method_name_t));
+    *m = (method_name_t) {
+        "", // name
+        NULL, // prev
+        NULL // next
+    };
+    tail_call_optimization_log_t *next_tcol_p = (tail_call_optimization_log_t*)malloc(sizeof(tail_call_optimization_log_t));
+    *next_tcol_p = (tail_call_optimization_log_t) {
+        0, // num
+        method_name, // name
+        m, // method_names_head
+        m, // method_names_tail
+        tail_call_optimization_log_tail, // prev
+        NULL // next
+    };
+    // push
+    tail_call_optimization_log_tail->next = next_tcol_p;
+    tail_call_optimization_log_tail = next_tcol_p;
 
 }
 static void pop_tail_call_optimization_log(void) {
-    tail_call_optimization_log_t *tmp_p = tail_call_optimization_log_tail_p;
-    tail_call_optimization_log_tail_p = tail_call_optimization_log_tail_p->prev;
-    tail_call_optimization_log_tail_p->next = NULL;
-    free(tmp_p);
+    // pop
+    tail_call_optimization_log_t *tail = tail_call_optimization_log_tail;
+    tail_call_optimization_log_tail = tail_call_optimization_log_tail->prev;
+    tail_call_optimization_log_tail->next = NULL;
+
+    // free
+    method_name_t* tmp = tail->method_names_head;
+    while (1) {
+        if (tmp->next == NULL) break;
+        tmp = tmp->next;
+        free(tmp->prev);
+    }
+    free(tmp);
+    free(tail);
 }
 static void count_up_tail_call_optimization_log(char *method_name) {
-    printf("method_name: %s\n", method_name);
-    tail_call_optimization_log_tail_p->num += 1;
+    tail_call_optimization_log_tail->num += 1;
 
     method_name_t *new_method_name = malloc(sizeof(method_name_t));
-    new_method_name->name = method_name;
-    new_method_name->prev = tail_call_optimization_log_tail_p->method_names_tail;
-    new_method_name->next = NULL;
-
-    tail_call_optimization_log_tail_p->method_names_tail->next = new_method_name;
-    tail_call_optimization_log_tail_p->method_names_tail = new_method_name;
+    *new_method_name = (method_name_t) {
+         method_name, // name
+         tail_call_optimization_log_tail->method_names_tail, // prev
+         NULL // next
+    };
+    tail_call_optimization_log_tail->method_names_tail->next = new_method_name;
+    tail_call_optimization_log_tail->method_names_tail = new_method_name;
 }
 
 
@@ -435,7 +450,10 @@ vm_push_frame(rb_execution_context_t *ec,
               int local_size,
               int stack_max)
 {
-    push_tail_call_optimization_log();
+    char *method_name = iseq
+        ? StringValuePtr(ISEQ_BODY(iseq)->location.label)
+        : "Cfunc";
+    push_tail_call_optimization_log(method_name);
     print_tail_call_optimization_log();
 
     rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
