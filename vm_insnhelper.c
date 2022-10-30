@@ -48,8 +48,7 @@ typedef struct tail_call_optimization_log_struct {
     struct tail_call_optimization_log_struct *next;
 } tail_call_optimization_log_t;
 
-method_name_t method_name = { "", NULL, NULL };
-tail_call_optimization_log_t tail_call_optimization_log = { 0, "ROOT", &method_name, &method_name, NULL, NULL };
+tail_call_optimization_log_t tail_call_optimization_log = { 0, "ROOT", NULL, NULL, NULL, NULL };
 tail_call_optimization_log_t *tail_call_optimization_log_head = &tail_call_optimization_log,
                              *tail_call_optimization_log_tail = &tail_call_optimization_log;
 
@@ -57,13 +56,15 @@ static void print_tail_call_optimization_log(void) {
     tail_call_optimization_log_t *tmp = tail_call_optimization_log_head;
     printf("|");
     while (1) {
-        printf("-> %s ", tmp->name);
-        /* printf("=>%d", tmp->num); */
+        printf(" %s ->", tmp->name);
+        /* printf("%d", tmp->num); */
         method_name_t *m = tmp->method_names_head;
-        while (1) {
-            if (m->next == NULL) break;
-            printf("=> %s ", m->name);
-            m = m->next;
+        if (m != NULL) {
+            while (1) {
+                printf(" %s =>", m->name);
+                if (m->next == NULL) break;
+                m = m->next;
+            }
         }
         if (tmp->next == NULL) break;
         tmp = tmp->next;
@@ -72,18 +73,12 @@ static void print_tail_call_optimization_log(void) {
 }
 static void push_tail_call_optimization_log(char *method_name) {
     // allocate
-    method_name_t *m = (method_name_t*)malloc(sizeof(method_name_t));
-    *m = (method_name_t) {
-        "", // name
-        NULL, // prev
-        NULL // next
-    };
     tail_call_optimization_log_t *next_tcol_p = (tail_call_optimization_log_t*)malloc(sizeof(tail_call_optimization_log_t));
     *next_tcol_p = (tail_call_optimization_log_t) {
         0, // num
         method_name, // name
-        m, // method_names_head
-        m, // method_names_tail
+        NULL, // method_names_head
+        NULL, // method_names_tail
         tail_call_optimization_log_tail, // prev
         NULL // next
     };
@@ -100,12 +95,14 @@ static void pop_tail_call_optimization_log(void) {
 
     // free
     method_name_t* tmp = tail->method_names_head;
-    while (1) {
-        if (tmp->next == NULL) break;
-        tmp = tmp->next;
-        free(tmp->prev);
+    if (tmp != NULL) {
+        while (1) {
+            if (tmp->next == NULL) break;
+            tmp = tmp->next;
+            free(tmp->prev);
+        }
+        free(tmp);
     }
-    free(tmp);
     free(tail);
 }
 static void count_up_tail_call_optimization_log(char *method_name) {
@@ -114,10 +111,16 @@ static void count_up_tail_call_optimization_log(char *method_name) {
     method_name_t *new_method_name = malloc(sizeof(method_name_t));
     *new_method_name = (method_name_t) {
          method_name, // name
-         tail_call_optimization_log_tail->method_names_tail, // prev
+         tail_call_optimization_log_tail == NULL
+            ? NULL
+            : tail_call_optimization_log_tail->method_names_tail, // prev
          NULL // next
     };
-    tail_call_optimization_log_tail->method_names_tail->next = new_method_name;
+    if (tail_call_optimization_log_tail->method_names_head == NULL) {
+        tail_call_optimization_log_tail->method_names_head = new_method_name;
+    } else {
+        tail_call_optimization_log_tail->method_names_tail->next = new_method_name;
+    }
     tail_call_optimization_log_tail->method_names_tail = new_method_name;
 }
 
@@ -454,6 +457,7 @@ vm_push_frame(rb_execution_context_t *ec,
         ? StringValuePtr(ISEQ_BODY(iseq)->location.label)
         : "Cfunc";
     push_tail_call_optimization_log(method_name);
+    printf("push");
     print_tail_call_optimization_log();
 
     rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
@@ -505,6 +509,7 @@ static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
     pop_tail_call_optimization_log();
+    printf("pop ");
     print_tail_call_optimization_log();
 
     VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
@@ -2764,8 +2769,10 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
     }
 
     vm_pop_frame(ec, cfp, cfp->ep);
-    VALUE method_name = ISEQ_BODY(iseq)->location.label;
+    VALUE method_name = ISEQ_BODY(cfp->iseq)->location.label;
     count_up_tail_call_optimization_log(StringValuePtr(method_name));
+    printf("tc  ");
+    print_tail_call_optimization_log();
 
     cfp = ec->cfp;
 
