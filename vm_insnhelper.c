@@ -8,6 +8,7 @@
 
 **********************************************************************/
 #include "vm_debug.h"
+#include "vm_backtrace.h"
 
 #include "ruby/internal/config.h"
 
@@ -33,95 +34,105 @@
 #include "insns_info.inc"
 #endif
 
-typedef struct method_name_struct {
-    char *name;
-    struct method_name_struct *prev;
-    struct method_name_struct *next;
-} method_name_t;
+typedef struct tcl_tailcall_method_struct {
+    rb_iseq_t *iseq;
+    VALUE *pc;
+    struct tcl_tailcall_method_struct *prev;
+    struct tcl_tailcall_method_struct *next;
+} tcl_tailcall_method_t;
 
-typedef struct tail_call_optimization_log_struct {
+typedef struct tcl_frame_struct {
     int num;
     char *name;
-    method_name_t *method_names_head;
-    method_name_t *method_names_tail;
-    struct tail_call_optimization_log_struct *prev;
-    struct tail_call_optimization_log_struct *next;
-} tail_call_optimization_log_t;
+    tcl_tailcall_method_t *tailcall_methods_head;
+    tcl_tailcall_method_t *tailcall_methods_tail;
+    struct tcl_frame_struct *prev;
+    struct tcl_frame_struct *next;
+} tcl_frame_t;
 
-tail_call_optimization_log_t tail_call_optimization_log = { 0, "ROOT", NULL, NULL, NULL, NULL };
-tail_call_optimization_log_t *tail_call_optimization_log_head = &tail_call_optimization_log,
-                             *tail_call_optimization_log_tail = &tail_call_optimization_log;
+tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL };
+tcl_frame_t *tcl_frame_head = &tcl_frame_root,
+            *tcl_frame_tail = &tcl_frame_root;
 
-static void print_tail_call_optimization_log(void) {
-    tail_call_optimization_log_t *tmp = tail_call_optimization_log_head;
-    printf("|");
+static void tcl_print(void) {
+    tcl_frame_t *f_tmp = tcl_frame_head;
+    // 最初の2つはスキップ(1つ目Root用のダミー、2つ目はMRIにおけるダミー)
+    if (f_tmp->next->next == NULL) { return; }
+    f_tmp = f_tmp->next->next;
+
     while (1) {
-        printf(" %s ->", tmp->name);
-        /* printf("%d", tmp->num); */
-        method_name_t *m = tmp->method_names_head;
-        if (m != NULL) {
+        printf(" %s ->", f_tmp->name);
+        /* printf("%d", f_tmp->num); */
+        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        if (m_tmp != NULL) {
             while (1) {
-                printf(" %s =>", m->name);
-                if (m->next == NULL) break;
-                m = m->next;
+                printf(
+                    " %s:%s:%d =>",
+                    StringValuePtr(ISEQ_BODY(m_tmp->iseq)->location.label),
+                    RSTRING_PTR(rb_iseq_path(m_tmp->iseq)), // <compiled> にしかならないからやめる
+                    calc_lineno(m_tmp->iseq, m_tmp->pc) // 今はいいや
+                );
+                if (m_tmp->next == NULL) break;
+                m_tmp = m_tmp->next;
             }
         }
-        if (tmp->next == NULL) break;
-        tmp = tmp->next;
+        if (f_tmp->next == NULL) break;
+        f_tmp = f_tmp->next;
     }
     printf("\n");
 }
-static void push_tail_call_optimization_log(char *method_name) {
+
+static void tcl_push(char *method_name) {
     // allocate
-    tail_call_optimization_log_t *next_tcol_p = (tail_call_optimization_log_t*)malloc(sizeof(tail_call_optimization_log_t));
-    *next_tcol_p = (tail_call_optimization_log_t) {
+    tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
+    *new_frame = (tcl_frame_t) {
         0, // num
         method_name, // name
-        NULL, // method_names_head
-        NULL, // method_names_tail
-        tail_call_optimization_log_tail, // prev
+        NULL, // tailcall_methods_head
+        NULL, // tailcall_methods_tail
+        tcl_frame_tail, // prev
         NULL // next
     };
     // push
-    tail_call_optimization_log_tail->next = next_tcol_p;
-    tail_call_optimization_log_tail = next_tcol_p;
-
+    tcl_frame_tail->next = new_frame;
+    tcl_frame_tail = new_frame;
 }
-static void pop_tail_call_optimization_log(void) {
+static void tcl_pop(void) {
     // pop
-    tail_call_optimization_log_t *tail = tail_call_optimization_log_tail;
-    tail_call_optimization_log_tail = tail_call_optimization_log_tail->prev;
-    tail_call_optimization_log_tail->next = NULL;
+    tcl_frame_t *tail_frame = tcl_frame_tail;
+    tcl_frame_tail = tcl_frame_tail->prev;
+    tcl_frame_tail->next = NULL;
 
     // free
-    method_name_t* tmp = tail->method_names_head;
-    if (tmp != NULL) {
+    tcl_tailcall_method_t* m_tmp = tail_frame->tailcall_methods_head;
+    if (m_tmp != NULL) {
         while (1) {
-            if (tmp->next == NULL) break;
-            tmp = tmp->next;
-            free(tmp->prev);
+            if (m_tmp->next == NULL) break;
+            m_tmp = m_tmp->next;
+            free(m_tmp->prev);
         }
-        free(tmp);
+        free(m_tmp);
     }
-    free(tail);
+    free(tail_frame);
 }
-static void count_up_tail_call_optimization_log(char *method_name) {
-    tail_call_optimization_log_tail->num += 1;
+static void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
+    tcl_frame_tail->num += 1;
 
-    method_name_t *new_method_name = malloc(sizeof(method_name_t));
-    *new_method_name = (method_name_t) {
-         method_name, // name
-         tail_call_optimization_log_tail == NULL
+    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+    *new_method_name = (tcl_tailcall_method_t) {
+         iseq,
+         pc,
+         tcl_frame_tail == NULL
             ? NULL
-            : tail_call_optimization_log_tail->method_names_tail, // prev
+            : tcl_frame_tail->tailcall_methods_tail, // prev
          NULL // next
     };
-    if (tail_call_optimization_log_tail->method_names_head == NULL) {
-        tail_call_optimization_log_tail->method_names_head = new_method_name;
+    if (tcl_frame_tail->tailcall_methods_head == NULL) {
+        tcl_frame_tail->tailcall_methods_head = new_method_name;
     } else {
-        tail_call_optimization_log_tail->method_names_tail->next = new_method_name;
+        tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
     }
-    tail_call_optimization_log_tail->method_names_tail = new_method_name;
+    tcl_frame_tail->tailcall_methods_tail = new_method_name;
 }
 
 
@@ -455,10 +466,10 @@ vm_push_frame(rb_execution_context_t *ec,
 {
     char *method_name = iseq
         ? StringValuePtr(ISEQ_BODY(iseq)->location.label)
-        : "Cfunc";
-    push_tail_call_optimization_log(method_name);
-    printf("push");
-    print_tail_call_optimization_log();
+        : "<cfunc>";
+
+    tcl_push(method_name);
+    tcl_print();
 
     rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
 
@@ -508,9 +519,8 @@ vm_push_frame(rb_execution_context_t *ec,
 static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
-    pop_tail_call_optimization_log();
-    printf("pop ");
-    print_tail_call_optimization_log();
+    tcl_pop();
+    tcl_print();
 
     VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
 
@@ -2769,10 +2779,8 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
     }
 
     vm_pop_frame(ec, cfp, cfp->ep);
-    VALUE method_name = ISEQ_BODY(cfp->iseq)->location.label;
-    count_up_tail_call_optimization_log(StringValuePtr(method_name));
-    printf("tc  ");
-    print_tail_call_optimization_log();
+    tcl_record(cfp->iseq, cfp->pc);
+    tcl_print();
 
     cfp = ec->cfp;
 
@@ -4902,7 +4910,7 @@ vm_sendish(
     switch (method_explorer) {
       case mexp_search_method:
         calling.cc = cc = vm_search_method_fastpath((VALUE)reg_cfp->iseq, cd, CLASS_OF(recv));
-        val = vm_cc_call(cc)(ec, GET_CFP(), &calling);
+        val = vm_cc_call(cc)(ec, GET_CFP(), &calling); // NOTE: vm_cc_call(cc) で得た関数を(ec, GET_CFP(), &calling)で呼び出している
         break;
       case mexp_search_super:
         calling.cc = cc = vm_search_super_method(reg_cfp, cd, recv);

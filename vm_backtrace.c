@@ -33,7 +33,7 @@ id2str(ID id)
 #define BACKTRACE_START 0
 #define ALL_BACKTRACE_LINES -1
 
-inline static int
+int
 calc_pos(const rb_iseq_t *iseq, const VALUE *pc, int *lineno, int *node_id)
 {
     VM_ASSERT(iseq);
@@ -77,7 +77,7 @@ calc_pos(const rb_iseq_t *iseq, const VALUE *pc, int *lineno, int *node_id)
     }
 }
 
-inline static int
+int
 calc_lineno(const rb_iseq_t *iseq, const VALUE *pc)
 {
     int lineno;
