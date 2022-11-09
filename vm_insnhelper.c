@@ -7,9 +7,6 @@
   Copyright (C) 2007 Koichi Sasada
 
 **********************************************************************/
-#include "vm_debug.h"
-#include "vm_backtrace.h"
-
 #include "ruby/internal/config.h"
 
 #include <math.h>
@@ -34,27 +31,38 @@
 #include "insns_info.inc"
 #endif
 
-typedef struct tcl_tailcall_method_struct {
-    rb_iseq_t *iseq;
-    VALUE *pc;
-    struct tcl_tailcall_method_struct *prev;
-    struct tcl_tailcall_method_struct *next;
-} tcl_tailcall_method_t;
+#include "vm_debug.h"
+#include "vm_backtrace.h"
+#include "tcl.h"
 
-typedef struct tcl_frame_struct {
-    int num;
-    char *name;
-    tcl_tailcall_method_t *tailcall_methods_head;
-    tcl_tailcall_method_t *tailcall_methods_tail;
-    struct tcl_frame_struct *prev;
-    struct tcl_frame_struct *next;
-} tcl_frame_t;
+static tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL };
+static tcl_frame_t *tcl_frame_head = &tcl_frame_root,
+                   *tcl_frame_tail = &tcl_frame_root;
 
-tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL };
-tcl_frame_t *tcl_frame_head = &tcl_frame_root,
-            *tcl_frame_tail = &tcl_frame_root;
+int tcl_log_size() {
+    tcl_frame_t *f_tmp = tcl_frame_head;
+    // 最初の2つはスキップ(1つ目Root用のダミー、2つ目はMRIにおけるダミー)
+    if (f_tmp->next->next == NULL) { return; }
+    f_tmp = f_tmp->next->next;
 
-static void tcl_print(void) {
+    int count = 0;
+    while (1) {
+        count += f_tmp->tailcall_methods_size;
+        if (f_tmp->next == NULL) break;
+        f_tmp = f_tmp->next;
+    }
+    return count;
+}
+
+tcl_frame_t* tcl_at(int n) {
+    tcl_frame_t *f_tmp = tcl_frame_tail;
+    for(int i = 0; i < n; i++) {
+        f_tmp = f_tmp->prev;
+    }
+    return f_tmp;
+}
+
+void tcl_print(void) {
     tcl_frame_t *f_tmp = tcl_frame_head;
     // 最初の2つはスキップ(1つ目Root用のダミー、2つ目はMRIにおけるダミー)
     if (f_tmp->next->next == NULL) { return; }
@@ -62,15 +70,14 @@ static void tcl_print(void) {
 
     while (1) {
         printf(" %s ->", f_tmp->name);
-        /* printf("%d", f_tmp->num); */
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
         if (m_tmp != NULL) {
             while (1) {
                 printf(
                     " %s:%s:%d =>",
                     StringValuePtr(ISEQ_BODY(m_tmp->iseq)->location.label),
-                    RSTRING_PTR(rb_iseq_path(m_tmp->iseq)), // <compiled> にしかならないからやめる
-                    calc_lineno(m_tmp->iseq, m_tmp->pc) // 今はいいや
+                    RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
+                    calc_lineno(m_tmp->iseq, m_tmp->pc)
                 );
                 if (m_tmp->next == NULL) break;
                 m_tmp = m_tmp->next;
@@ -82,14 +89,14 @@ static void tcl_print(void) {
     printf("\n");
 }
 
-static void tcl_push(char *method_name) {
+void tcl_push(char *method_name) {
     // allocate
     tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
     *new_frame = (tcl_frame_t) {
-        0, // num
         method_name, // name
         NULL, // tailcall_methods_head
         NULL, // tailcall_methods_tail
+        0, // tailcall_methods_size
         tcl_frame_tail, // prev
         NULL // next
     };
@@ -97,7 +104,7 @@ static void tcl_push(char *method_name) {
     tcl_frame_tail->next = new_frame;
     tcl_frame_tail = new_frame;
 }
-static void tcl_pop(void) {
+void tcl_pop(void) {
     // pop
     tcl_frame_t *tail_frame = tcl_frame_tail;
     tcl_frame_tail = tcl_frame_tail->prev;
@@ -115,8 +122,8 @@ static void tcl_pop(void) {
     }
     free(tail_frame);
 }
-static void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
-    tcl_frame_tail->num += 1;
+void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
+    tcl_frame_tail->tailcall_methods_size += 1;
 
     tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
     *new_method_name = (tcl_tailcall_method_t) {
@@ -134,7 +141,6 @@ static void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
     }
     tcl_frame_tail->tailcall_methods_tail = new_method_name;
 }
-
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
 extern void rb_method_definition_set(const rb_method_entry_t *me, rb_method_definition_t *def, void *opts);
@@ -469,7 +475,7 @@ vm_push_frame(rb_execution_context_t *ec,
         : "<cfunc>";
 
     tcl_push(method_name);
-    tcl_print();
+    /* tcl_print(); */
 
     rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
 
@@ -520,7 +526,7 @@ static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
     tcl_pop();
-    tcl_print();
+    /* tcl_print(); */
 
     VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
 
@@ -2780,7 +2786,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 
     vm_pop_frame(ec, cfp, cfp->ep);
     tcl_record(cfp->iseq, cfp->pc);
-    tcl_print();
+    /* tcl_print(); */
 
     cfp = ec->cfp;
 
