@@ -131,7 +131,7 @@ lcov*.info
 /run.gdb
 /sizes.c
 /static-ruby
-/test.rb
+
 /test-coverage.dat
 /tmp
 /transdb.h
