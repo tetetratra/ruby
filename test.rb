@@ -1,7 +1,10 @@
 RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
 
 def a()
-  b(10)
+  puts '---'
+  puts b(5)
+  puts '---'
+  puts b(5)
 end
 
 RubyVM::InstructionSequence.compile_file(
@@ -13,3 +16,4 @@ def c()
 end
 
 puts a()
+

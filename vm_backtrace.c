@@ -403,7 +403,7 @@ location_format(VALUE file, int lineno, VALUE name, bool tailcall)
         rb_str_catf(s, "`%s'", RSTRING_PTR(name));
     }
     if (tailcall) {
-        rb_str_cat_cstr(s, " (tail call)");
+        rb_str_cat_cstr(s, " (tailcall)");
     }
     return s;
 }
@@ -641,17 +641,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
 
     int tcl_at_index = 0;
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
-        tcl_frame_t *f = tcl_at(tcl_at_index);
-        tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
-        for (int i = 0; i < f->tailcall_methods_size; i++) {
-            loc = &bt->backtrace[bt->backtrace_size++];
-            loc->type = LOCATION_TYPE_ISEQ;
-            loc->iseq = tailcall_method->iseq;
-            loc->pc = tailcall_method->pc;
-            loc->tailcall = true;
-            tailcall_method = tailcall_method->prev;
-        }
-
         if (cfp->iseq) {
             if (cfp->pc) {
                 if (start_frame > 0) {
@@ -687,6 +676,16 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 loc->mid = rb_vm_frame_method_entry(cfp)->def->original_id;
                 cfunc_counter++;
             }
+        }
+        tcl_frame_t *f = tcl_at(tcl_at_index);
+        tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
+        for (int i = 0; i < f->tailcall_methods_size; i++) {
+            loc = &bt->backtrace[bt->backtrace_size++];
+            loc->type = LOCATION_TYPE_ISEQ;
+            loc->iseq = tailcall_method->iseq;
+            loc->pc = tailcall_method->pc;
+            loc->tailcall = true;
+            tailcall_method = tailcall_method->prev;
         }
         tcl_at_index++;
     }

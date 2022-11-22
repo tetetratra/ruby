@@ -1,5 +1,5 @@
 def b(n)
-  if n == 0
+  if n == 1
     c()
   else
     b(n-1)

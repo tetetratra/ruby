@@ -129,17 +129,16 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
     *new_method_name = (tcl_tailcall_method_t) {
          iseq,
          pc,
-         tcl_frame_tail == NULL
-            ? NULL
-            : tcl_frame_tail->tailcall_methods_tail, // prev
+         tcl_frame_tail->tailcall_methods_tail, // prev
          NULL // next
     };
     if (tcl_frame_tail->tailcall_methods_head == NULL) {
         tcl_frame_tail->tailcall_methods_head = new_method_name;
+        tcl_frame_tail->tailcall_methods_tail = new_method_name;
     } else {
         tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
+        tcl_frame_tail->tailcall_methods_tail = new_method_name;
     }
-    tcl_frame_tail->tailcall_methods_tail = new_method_name;
 }
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
@@ -458,6 +457,45 @@ STATIC_ASSERT(VM_ENV_DATA_INDEX_ME_CREF, VM_ENV_DATA_INDEX_ME_CREF == -2);
 STATIC_ASSERT(VM_ENV_DATA_INDEX_SPECVAL, VM_ENV_DATA_INDEX_SPECVAL == -1);
 STATIC_ASSERT(VM_ENV_DATA_INDEX_FLAGS,   VM_ENV_DATA_INDEX_FLAGS   == -0);
 
+#define VM_PUSH_FRAME_BODY \
+    do { \
+    rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp); \
+    vm_check_frame(type, specval, cref_or_me, iseq); \
+    VM_ASSERT(local_size >= 0); \
+    /* check stack overflow */ \
+    CHECK_VM_STACK_OVERFLOW0(cfp, sp, local_size + stack_max); \
+    vm_check_canary(ec, sp); \
+    /* setup vm value stack */ \
+    /* initialize local variables */ \
+    for (int i=0; i < local_size; i++) { \
+        *sp++ = Qnil; \
+    } \
+    /* setup ep with managing data */ \
+    *sp++ = cref_or_me; /* ep[-2] / Qnil or T_IMEMO(cref) or T_IMEMO(ment) */ \
+    *sp++ = specval     /* ep[-1] / block handler or prev env ptr */; \
+    *sp++ = type;       /* ep[-0] / ENV_FLAGS */ \
+    /* setup new frame */ \
+    *cfp = (const struct rb_control_frame_struct) { \
+        .pc         = pc, \
+        .sp         = sp, \
+        .iseq       = iseq, \
+        .self       = self, \
+        .ep         = sp - 1, \
+        .block_code = NULL, \
+        .__bp__     = sp, /* Store initial value of ep as bp to skip calculation cost of bp on JIT cancellation. */ \
+/* #if VM_DEBUG_BP_CHECK    FIXME: #define マクロ内で #if を使う方法がわからないのでコメントアウトしている */ \
+/*         .bp_check   = sp, */ \
+/* #endif */ \
+        .jit_return = NULL \
+    }; \
+    ec->cfp = cfp; \
+ \
+    if (VMDEBUG == 2) { \
+        SDR(); \
+    } \
+    vm_push_frame_debug_counter_inc(ec, cfp, type); \
+    } while (0)
+
 static void
 vm_push_frame(rb_execution_context_t *ec,
               const rb_iseq_t *iseq,
@@ -470,56 +508,37 @@ vm_push_frame(rb_execution_context_t *ec,
               int local_size,
               int stack_max)
 {
-    char *method_name = iseq
-        ? StringValuePtr(ISEQ_BODY(iseq)->location.label)
-        : "<cfunc>";
-
+    char *method_name = iseq ? StringValuePtr(ISEQ_BODY(iseq)->location.label) : "<cfunc>";
     tcl_push(method_name);
     /* tcl_print(); */
-
-    rb_control_frame_t *const cfp = RUBY_VM_NEXT_CONTROL_FRAME(ec->cfp);
-
-    vm_check_frame(type, specval, cref_or_me, iseq);
-    VM_ASSERT(local_size >= 0);
-
-    /* check stack overflow */
-    CHECK_VM_STACK_OVERFLOW0(cfp, sp, local_size + stack_max);
-    vm_check_canary(ec, sp);
-
-    /* setup vm value stack */
-
-    /* initialize local variables */
-    for (int i=0; i < local_size; i++) {
-        *sp++ = Qnil;
-    }
-
-    /* setup ep with managing data */
-    *sp++ = cref_or_me; /* ep[-2] / Qnil or T_IMEMO(cref) or T_IMEMO(ment) */
-    *sp++ = specval     /* ep[-1] / block handler or prev env ptr */;
-    *sp++ = type;       /* ep[-0] / ENV_FLAGS */
-
-    /* setup new frame */
-    *cfp = (const struct rb_control_frame_struct) {
-        .pc         = pc,
-        .sp         = sp,
-        .iseq       = iseq,
-        .self       = self,
-        .ep         = sp - 1,
-        .block_code = NULL,
-        .__bp__     = sp, /* Store initial value of ep as bp to skip calculation cost of bp on JIT cancellation. */
-#if VM_DEBUG_BP_CHECK
-        .bp_check   = sp,
-#endif
-        .jit_return = NULL
-    };
-
-    ec->cfp = cfp;
-
-    if (VMDEBUG == 2) {
-        SDR();
-    }
-    vm_push_frame_debug_counter_inc(ec, cfp, type);
+    VM_PUSH_FRAME_BODY;
 }
+
+static void
+vm_push_frame_without_tcl_push(rb_execution_context_t *ec,
+              const rb_iseq_t *iseq,
+              VALUE type,
+              VALUE self,
+              VALUE specval,
+              VALUE cref_or_me,
+              const VALUE *pc,
+              VALUE *sp,
+              int local_size,
+              int stack_max) {
+    /* tcl_print(); */
+    VM_PUSH_FRAME_BODY;
+}
+
+
+#define VM_POP_FRAME_BODY \
+    do { \
+    VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS]; \
+    if (VM_CHECK_MODE >= 4) rb_gc_verify_internal_consistency(); \
+    if (VMDEBUG == 2)       SDR(); \
+    RUBY_VM_CHECK_INTS(ec); \
+    ec->cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp); \
+    return flags & VM_FRAME_FLAG_FINISH; \
+    } while (0)
 
 /* return TRUE if the frame is finished */
 static inline int
@@ -527,16 +546,14 @@ vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *e
 {
     tcl_pop();
     /* tcl_print(); */
+    VM_POP_FRAME_BODY;
+}
 
-    VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
-
-    if (VM_CHECK_MODE >= 4) rb_gc_verify_internal_consistency();
-    if (VMDEBUG == 2)       SDR();
-
-    RUBY_VM_CHECK_INTS(ec);
-    ec->cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp);
-
-    return flags & VM_FRAME_FLAG_FINISH;
+static inline int
+vm_pop_frame_without_tcl_pop(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
+{
+    /* tcl_print(); */
+    VM_POP_FRAME_BODY;
 }
 
 MJIT_STATIC void
@@ -2784,7 +2801,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
         }
     }
 
-    vm_pop_frame(ec, cfp, cfp->ep);
+    vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
     tcl_record(cfp->iseq, cfp->pc);
     /* tcl_print(); */
 
@@ -2801,7 +2818,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
         *sp++ = src_argv[i];
     }
 
-    vm_push_frame(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
+    vm_push_frame_without_tcl_push(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
                   calling->recv, calling->block_handler, (VALUE)me,
                   ISEQ_BODY(iseq)->iseq_encoded + opt_pc, sp,
                   ISEQ_BODY(iseq)->local_table_size - ISEQ_BODY(iseq)->param.size,
