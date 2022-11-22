@@ -141,17 +141,6 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
     }
     tcl_frame_tail->tailcall_methods_tail = new_method_name;
 }
-void tcl_clear_top() {
-    tcl_tailcall_method_t* m_tmp = tcl_frame_tail->tailcall_methods_head;
-    if (m_tmp != NULL) {
-        while (1) {
-            if (m_tmp->next == NULL) break;
-            m_tmp = m_tmp->next;
-            free(m_tmp->prev);
-        }
-        free(m_tmp);
-    }
-}
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
 extern void rb_method_definition_set(const rb_method_entry_t *me, rb_method_definition_t *def, void *opts);
@@ -534,11 +523,10 @@ vm_push_frame(rb_execution_context_t *ec,
 
 /* return TRUE if the frame is finished */
 static inline int
-vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep, bool tailcall)
+vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
     tcl_pop();
     /* tcl_print(); */
-    if (!tailcall) { tcl_clear_top(); }
 
     VALUE flags = ep[VM_ENV_DATA_INDEX_FLAGS];
 
@@ -554,7 +542,7 @@ vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *e
 MJIT_STATIC void
 rb_vm_pop_frame(rb_execution_context_t *ec)
 {
-    vm_pop_frame(ec, ec->cfp, ec->cfp->ep, false);
+    vm_pop_frame(ec, ec->cfp, ec->cfp->ep);
 }
 
 /* method dispatch */
@@ -2796,7 +2784,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
         }
     }
 
-    vm_pop_frame(ec, cfp, cfp->ep, true);
+    vm_pop_frame(ec, cfp, cfp->ep);
     tcl_record(cfp->iseq, cfp->pc);
     /* tcl_print(); */
 

@@ -768,7 +768,7 @@ rb_vm_pop_cfunc_frame(void)
 
     EXEC_EVENT_HOOK(ec, RUBY_EVENT_C_RETURN, cfp->self, me->def->original_id, me->called_id, me->owner, Qnil);
     RUBY_DTRACE_CMETHOD_RETURN_HOOK(ec, me->owner, me->def->original_id);
-    vm_pop_frame(ec, cfp, cfp->ep, false);
+    vm_pop_frame(ec, cfp, cfp->ep);
 }
 
 #ifndef MJIT_HEADER

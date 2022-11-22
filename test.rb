@@ -1,9 +1,7 @@
 RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
 
-def a(n)
-  # puts b(n)
-  # puts '---'
-  puts b(n)
+def a()
+  b(10)
 end
 
 RubyVM::InstructionSequence.compile_file(
@@ -14,5 +12,4 @@ def c()
   caller_locations(0)
 end
 
-a(5)
-
+puts a()
