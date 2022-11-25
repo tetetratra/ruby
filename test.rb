@@ -1,10 +1,11 @@
 RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
 
+$TCL = [
+  { type: 'a' }
+]
+
 def a()
-  puts '---'
-  puts b(5)
-  puts '---'
-  puts b(5)
+  b1(5)
 end
 
 RubyVM::InstructionSequence.compile_file(

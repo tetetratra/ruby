@@ -129,6 +129,7 @@ typedef struct rb_backtrace_location_struct {
     ID mid;
 
     bool tailcall;
+    bool tailcall_omitted_next_calls;
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -389,9 +390,14 @@ location_absolute_path_m(VALUE self)
 }
 
 static VALUE
-location_format(VALUE file, int lineno, VALUE name, bool tailcall)
+location_format(VALUE file, int lineno, VALUE name, bool tailcall, bool tailcall_omitted_next_calls)
 {
-    VALUE s = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
+    VALUE s = rb_str_new(0, 0);
+    if (tailcall_omitted_next_calls) {
+        rb_str_cat_cstr(s, "... (truncated tailcalls)\n");
+    }
+    VALUE ss = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
+    rb_str_concat(s, ss);
     if (lineno != 0) {
         rb_str_catf(s, ":%d", lineno);
     }
@@ -436,7 +442,7 @@ location_to_str(rb_backtrace_location_t *loc)
         rb_bug("location_to_str: unreachable");
     }
 
-    return location_format(file, lineno, name, loc->tailcall);
+    return location_format(file, lineno, name, loc->tailcall, loc->tailcall_omitted_next_calls);
 }
 
 /*
@@ -640,6 +646,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
     }
 
     int tcl_at_index = 0;
+    bool tailcall_omitted_next_calls_flag = false;
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
         if (cfp->iseq) {
             if (cfp->pc) {
@@ -654,6 +661,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     loc->iseq = iseq;
                     loc->pc = pc;
                     loc->tailcall = false;
+                    loc->tailcall_omitted_next_calls = tailcall_omitted_next_calls_flag;
                     bt_update_cfunc_loc(cfunc_counter, loc-1, iseq, pc);
                     if (do_yield) {
                         bt_yield_loc(loc - cfunc_counter, cfunc_counter+1, btobj);
@@ -673,20 +681,24 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 loc->iseq = NULL;
                 loc->pc = NULL;
                 loc->tailcall = false;
+                loc->tailcall_omitted_next_calls = tailcall_omitted_next_calls_flag;
                 loc->mid = rb_vm_frame_method_entry(cfp)->def->original_id;
                 cfunc_counter++;
             }
         }
         tcl_frame_t *f = tcl_at(tcl_at_index);
         tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
+        // TODO ... を入れる処理を他にも
         for (int i = 0; i < f->tailcall_methods_size; i++) {
             loc = &bt->backtrace[bt->backtrace_size++];
             loc->type = LOCATION_TYPE_ISEQ;
             loc->iseq = tailcall_method->iseq;
             loc->pc = tailcall_method->pc;
             loc->tailcall = true;
+            loc->tailcall_omitted_next_calls = (f->filter_type == TCL_FILTER_TYPE_BEGIN && i == 0);
             tailcall_method = tailcall_method->prev;
         }
+        tailcall_omitted_next_calls_flag = f->filter_type == TCL_FILTER_TYPE_END;
         tcl_at_index++;
     }
 

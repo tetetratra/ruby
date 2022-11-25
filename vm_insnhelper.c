@@ -11,6 +11,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "constant.h"
 #include "debug_counter.h"
@@ -35,7 +36,7 @@
 #include "vm_backtrace.h"
 #include "tcl.h"
 
-static tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL };
+static tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL, TCL_FILTER_TYPE_ALL, 0 };
 static tcl_frame_t *tcl_frame_head = &tcl_frame_root,
                    *tcl_frame_tail = &tcl_frame_root;
 
@@ -98,7 +99,9 @@ void tcl_push(char *method_name) {
         NULL, // tailcall_methods_tail
         0, // tailcall_methods_size
         tcl_frame_tail, // prev
-        NULL // next
+        NULL, // next
+        TCL_FILTER_TYPE_ALL, // filter_type
+        0 // filter_num
     };
     // push
     tcl_frame_tail->next = new_frame;
@@ -116,28 +119,69 @@ void tcl_pop(void) {
         while (1) {
             if (m_tmp->next == NULL) break;
             m_tmp = m_tmp->next;
-            free(m_tmp->prev);
+            free(m_tmp->prev); // FIXME: 要素の中身もfreeするべきなのかも
         }
         free(m_tmp);
     }
     free(tail_frame);
 }
 void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
-    tcl_frame_tail->tailcall_methods_size += 1;
+    /* all: size++, alloc, tailを追加
+     * none: -
+     * begin: size < n ? (size++, alloc, tailを追加) : -
+     * end: size < n ? (size++, alloc, tailを追加) : (headを削除, alloc, tailを追加)
+     * begin_end: size < n*2 ? (size++, alloc, tailを追加) : (head+nを削除, alloc, tailを追加)
+     */
+    switch(tcl_frame_tail->filter_type) {
+      case TCL_FILTER_TYPE_NONE:
+        // do nothing
+        break;
+      case TCL_FILTER_TYPE_BEGIN:
+        if (tcl_frame_tail->tailcall_methods_size >= tcl_frame_tail->filter_num)
+            // do nothing
+            break;
+      case TCL_FILTER_TYPE_END:
+        if (tcl_frame_tail->tailcall_methods_size >= tcl_frame_tail->filter_num) {
+            // headを削除
+            tcl_frame_tail->tailcall_methods_head = tcl_frame_tail->tailcall_methods_head->next;
+            free(tcl_frame_tail->tailcall_methods_head->prev);
 
-    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
-    *new_method_name = (tcl_tailcall_method_t) {
-         iseq,
-         pc,
-         tcl_frame_tail->tailcall_methods_tail, // prev
-         NULL // next
-    };
-    if (tcl_frame_tail->tailcall_methods_head == NULL) {
-        tcl_frame_tail->tailcall_methods_head = new_method_name;
-        tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    } else {
-        tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
-        tcl_frame_tail->tailcall_methods_tail = new_method_name;
+            tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+            *new_method_name = (tcl_tailcall_method_t) {
+                 iseq,
+                 pc,
+                 tcl_frame_tail->tailcall_methods_tail, // prev
+                 NULL // next
+            };
+
+            tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
+            tcl_frame_tail->tailcall_methods_tail = new_method_name;
+            break;
+        }
+      case TCL_FILTER_TYPE_BEGIN_END:
+        if (tcl_frame_tail->tailcall_methods_size >= tcl_frame_tail->filter_num * 2) {
+            // TODO (head+nを削除, alloc, tailを追加)
+            break;
+        }
+      case TCL_FILTER_TYPE_ALL:
+        tcl_frame_tail->tailcall_methods_size += 1;
+
+        tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+        *new_method_name = (tcl_tailcall_method_t) {
+             iseq,
+             pc,
+             tcl_frame_tail->tailcall_methods_tail, // prev
+             NULL // next
+        };
+
+        if (tcl_frame_tail->tailcall_methods_head == NULL) { // 最初の場合
+            tcl_frame_tail->tailcall_methods_head = new_method_name;
+            tcl_frame_tail->tailcall_methods_tail = new_method_name;
+        } else {
+            tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
+            tcl_frame_tail->tailcall_methods_tail = new_method_name;
+        }
+        break;
     }
 }
 
