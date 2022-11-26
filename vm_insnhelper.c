@@ -12,6 +12,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include "constant.h"
 #include "debug_counter.h"
@@ -36,7 +37,7 @@
 #include "vm_backtrace.h"
 #include "tcl.h"
 
-static tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL, TCL_FILTER_TYPE_ALL, 0 };
+static tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL, TCL_FILTER_TYPE_KEEP_ALL, 0, false };
 static tcl_frame_t *tcl_frame_head = &tcl_frame_root,
                    *tcl_frame_tail = &tcl_frame_root;
 
@@ -100,13 +101,15 @@ void tcl_push(char *method_name) {
         0, // tailcall_methods_size
         tcl_frame_tail, // prev
         NULL, // next
-        TCL_FILTER_TYPE_ALL, // filter_type
-        0 // filter_num
+        TCL_FILTER_TYPE_KEEP_NONE, // filter_type
+        0, // keep_size
+        false // truncated
     };
     // push
     tcl_frame_tail->next = new_frame;
     tcl_frame_tail = new_frame;
 }
+
 void tcl_pop(void) {
     // pop
     tcl_frame_t *tail_frame = tcl_frame_tail;
@@ -125,65 +128,132 @@ void tcl_pop(void) {
     }
     free(tail_frame);
 }
+
+void tcl_record__filter_type_all(const rb_iseq_t *iseq, VALUE *pc);
+void tcl_record__filter_type_end_size1(const rb_iseq_t *iseq, VALUE *pc);
+void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc);
+void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc);
+
 void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
-    /* all: size++, alloc, tailを追加
-     * none: -
-     * begin: size < n ? (size++, alloc, tailを追加) : -
-     * end: size < n ? (size++, alloc, tailを追加) : (headを削除, alloc, tailを追加)
-     * begin_end: size < n*2 ? (size++, alloc, tailを追加) : (head+nを削除, alloc, tailを追加)
-     */
+    int size = tcl_frame_tail->tailcall_methods_size;
+    int keep_size = tcl_frame_tail->keep_size;
+    if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
+        tcl_frame_tail->truncated = true;
+        return;
+    }
     switch(tcl_frame_tail->filter_type) {
-      case TCL_FILTER_TYPE_NONE:
-        // do nothing
+      case TCL_FILTER_TYPE_KEEP_NONE:
+        tcl_frame_tail->truncated = true;
         break;
-      case TCL_FILTER_TYPE_BEGIN:
-        if (tcl_frame_tail->tailcall_methods_size >= tcl_frame_tail->filter_num)
-            // do nothing
-            break;
-      case TCL_FILTER_TYPE_END:
-        if (tcl_frame_tail->tailcall_methods_size >= tcl_frame_tail->filter_num) {
-            // headを削除
-            tcl_frame_tail->tailcall_methods_head = tcl_frame_tail->tailcall_methods_head->next;
-            free(tcl_frame_tail->tailcall_methods_head->prev);
-
-            tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
-            *new_method_name = (tcl_tailcall_method_t) {
-                 iseq,
-                 pc,
-                 tcl_frame_tail->tailcall_methods_tail, // prev
-                 NULL // next
-            };
-
-            tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
-            tcl_frame_tail->tailcall_methods_tail = new_method_name;
-            break;
-        }
-      case TCL_FILTER_TYPE_BEGIN_END:
-        if (tcl_frame_tail->tailcall_methods_size >= tcl_frame_tail->filter_num * 2) {
-            // TODO (head+nを削除, alloc, tailを追加)
-            break;
-        }
-      case TCL_FILTER_TYPE_ALL:
-        tcl_frame_tail->tailcall_methods_size += 1;
-
-        tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
-        *new_method_name = (tcl_tailcall_method_t) {
-             iseq,
-             pc,
-             tcl_frame_tail->tailcall_methods_tail, // prev
-             NULL // next
-        };
-
-        if (tcl_frame_tail->tailcall_methods_head == NULL) { // 最初の場合
-            tcl_frame_tail->tailcall_methods_head = new_method_name;
-            tcl_frame_tail->tailcall_methods_tail = new_method_name;
+      case TCL_FILTER_TYPE_KEEP_BEGIN:
+        if (size >= keep_size) {
+            tcl_frame_tail->truncated = true;
         } else {
-            tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
-            tcl_frame_tail->tailcall_methods_tail = new_method_name;
+            tcl_record__filter_type_all(iseq, pc);
         }
         break;
+      case TCL_FILTER_TYPE_KEEP_END:
+        if (size >= keep_size) {
+            if (size == 1) { // 1個のときは付け替えが例外的な処理になる
+                tcl_record__filter_type_end_size1(iseq, pc);
+            } else {
+                tcl_record__filter_type_end(iseq, pc);
+            }
+        } else {
+          tcl_record__filter_type_all(iseq, pc);
+        }
+        break;
+      case TCL_FILTER_TYPE_KEEP_BEGIN_AND_END:
+        if (size >= keep_size * 2) {
+            tcl_record__filter_type_begin_end(iseq, pc);
+        } else {
+          tcl_record__filter_type_all(iseq, pc);
+        }
+        break;
+      case TCL_FILTER_TYPE_KEEP_ALL:
+        tcl_record__filter_type_all(iseq, pc);
     }
 }
+
+void tcl_record__filter_type_all(const rb_iseq_t *iseq, VALUE *pc) {
+    int size = tcl_frame_tail->tailcall_methods_size;
+
+    tcl_frame_tail->tailcall_methods_size += 1;
+
+    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+    *new_method_name = (tcl_tailcall_method_t) {
+         iseq,
+         pc,
+         tcl_frame_tail->tailcall_methods_tail, // prev
+         NULL // next
+    };
+
+    if (tcl_frame_tail->tailcall_methods_head == NULL) { // 最初の場合
+        tcl_frame_tail->tailcall_methods_head = new_method_name;
+        tcl_frame_tail->tailcall_methods_tail = new_method_name;
+    } else {
+        tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
+        tcl_frame_tail->tailcall_methods_tail = new_method_name;
+    }
+}
+
+void tcl_record__filter_type_end_size1(const rb_iseq_t *iseq, VALUE *pc) {
+    free(tcl_frame_tail->tailcall_methods_head);
+
+    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+    *new_method_name = (tcl_tailcall_method_t) {
+        iseq,
+            pc,
+            tcl_frame_tail->tailcall_methods_tail, // prev
+            NULL // next
+    };
+
+    tcl_frame_tail->tailcall_methods_head = new_method_name;
+    tcl_frame_tail->tailcall_methods_tail = new_method_name;
+    tcl_frame_tail->truncated = true;
+}
+
+void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc) {
+    // headを削除
+    tcl_frame_tail->tailcall_methods_head = tcl_frame_tail->tailcall_methods_head->next;
+    free(tcl_frame_tail->tailcall_methods_head->prev);
+
+    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+    *new_method_name = (tcl_tailcall_method_t) {
+        iseq,
+            pc,
+            tcl_frame_tail->tailcall_methods_tail, // prev
+            NULL // next
+    };
+
+    tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
+    tcl_frame_tail->tailcall_methods_tail = new_method_name;
+    tcl_frame_tail->truncated = true;
+}
+
+void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc) {
+    int keep_size = tcl_frame_tail->keep_size;
+
+    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
+    *new_method_name = (tcl_tailcall_method_t) {
+        iseq,
+            pc,
+            tcl_frame_tail->tailcall_methods_tail, // prev
+            NULL // next
+    };
+    tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
+    tcl_frame_tail->tailcall_methods_tail = new_method_name;
+    // head+nを削除
+    tcl_tailcall_method_t *delete_method = tcl_frame_tail->tailcall_methods_head;
+    for (int i = 0; i < keep_size; i++) {
+        delete_method = delete_method->next;
+    }
+    delete_method->prev->next = delete_method->next;
+    delete_method->next->prev = delete_method->prev;
+    free(delete_method);
+    tcl_frame_tail->truncated = true;
+}
+
 
 extern rb_method_definition_t *rb_method_definition_create(rb_method_type_t type, ID mid);
 extern void rb_method_definition_set(const rb_method_entry_t *me, rb_method_definition_t *def, void *opts);

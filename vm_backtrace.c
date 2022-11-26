@@ -394,6 +394,7 @@ location_format(VALUE file, int lineno, VALUE name, bool tailcall, bool tailcall
 {
     VALUE s = rb_str_new(0, 0);
     if (tailcall_omitted_next_calls) {
+        // TODO: filter_type も受け取って、truncateされた理由を表示してもいいかも
         rb_str_cat_cstr(s, "... (truncated tailcalls)\n");
     }
     VALUE ss = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
@@ -688,17 +689,22 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         }
         tcl_frame_t *f = tcl_at(tcl_at_index);
         tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
-        // TODO ... を入れる処理を他にも
         for (int i = 0; i < f->tailcall_methods_size; i++) {
             loc = &bt->backtrace[bt->backtrace_size++];
             loc->type = LOCATION_TYPE_ISEQ;
             loc->iseq = tailcall_method->iseq;
             loc->pc = tailcall_method->pc;
             loc->tailcall = true;
-            loc->tailcall_omitted_next_calls = (f->filter_type == TCL_FILTER_TYPE_BEGIN && i == 0);
+            loc->tailcall_omitted_next_calls =
+                (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN && i == 0) ||
+                (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END && i == f->keep_size && f->tailcall_methods_size == f->keep_size * 2);
             tailcall_method = tailcall_method->prev;
         }
-        tailcall_omitted_next_calls_flag = f->filter_type == TCL_FILTER_TYPE_END;
+        tailcall_omitted_next_calls_flag =
+            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_END) ||
+            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) ||
+            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) ||
+            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN && f->tailcall_methods_size == 0 /* 例外的 */);
         tcl_at_index++;
     }
 
