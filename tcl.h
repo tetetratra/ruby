@@ -26,3 +26,8 @@ typedef struct tcl_frame_struct {
     bool truncated;
 } tcl_frame_t;
 
+typedef struct tcl_filter_struct {
+  char *name;
+  tcl_filter_type filter_type;
+  int keep_size;
+} tcl_filter_t;

@@ -1,5 +1,9 @@
 RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
 
+$tcl_filter = [
+  { method: 'a', filter: :keep_begin_and_end, keep_size: 3 }
+]
+
 def a()
   b1(10)
 end

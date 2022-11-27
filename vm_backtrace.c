@@ -22,6 +22,8 @@
 
 int tcl_log_size();
 tcl_frame_t* get_tcl_frame_tail();
+VALUE get_tcl_filters();
+void set_tcl_filters(VALUE);
 
 static VALUE rb_cBacktrace;
 static VALUE rb_cBacktraceLocation;
@@ -1320,10 +1322,14 @@ each_caller_location(VALUE unused)
     return Qnil;
 }
 
+VALUE tcl_filter_getter(ID _id) { return get_tcl_filters(); }
+void tcl_filter_setter(VALUE val, ID _id) { set_tcl_filters(val); }
+
 /* called from Init_vm() in vm.c */
 void
 Init_vm_backtrace(void)
 {
+    rb_define_virtual_variable("$tcl_filter", tcl_filter_getter, tcl_filter_setter);
     /*
      *  An internal representation of the backtrace. The user will never interact with
      *  objects of this class directly, but class methods can be used to get backtrace

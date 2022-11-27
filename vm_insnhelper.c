@@ -41,6 +41,51 @@ tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 tcl_frame_t* get_tcl_frame_tail() { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
 
+tcl_filter_t** tcl_filters = NULL; // 定数ではない rb_ary_new() による初期化はできないのでnilで初期化している
+long tcl_filters_size = 0;
+
+VALUE get_tcl_filters() {
+    return Qnil; // TODO: ちゃんと返す
+}
+
+void set_tcl_filters(VALUE val) {
+    // rb -> C の変換を行う
+    if (tcl_filters) { free(tcl_filters); } // TODO: もっと内側もfreeする
+    if (!rb_obj_is_kind_of(val, rb_cArray)) { rb_raise(rb_eTypeError, "class of `$tcl_filter' is not Array"); }
+
+    tcl_filters_size = RARRAY_LEN(val);
+    tcl_filters = malloc(sizeof(tcl_filter_t) * tcl_filters_size);
+    for (long i = 0; i < tcl_filters_size; i++) {
+        VALUE v = RARRAY_AREF(val, i);
+        if (!rb_obj_is_kind_of(v, rb_cHash)) { rb_raise(rb_eTypeError, "class of `$tcl_filter[n]' is not Hash"); }
+
+        VALUE name = rb_hash_aref(v, rb_str_intern(rb_str_new2("method")));
+        if (!rb_obj_is_kind_of(name, rb_cString)) { rb_raise(rb_eTypeError, "class of `$tcl_filter[n][:name]' is not String"); }
+
+        VALUE filter = rb_hash_aref(v, rb_str_intern(rb_str_new2("filter")));
+        if (!rb_obj_is_kind_of(filter, rb_cSymbol)) { rb_raise(rb_eTypeError, "class of `$tcl_filter[n][:filter]' is not Symbol"); }
+        char* filter_cstr = rb_str_to_cstr(rb_sym_to_s(filter));
+
+        tcl_filter_type filter_type = TCL_FILTER_TYPE_KEEP_NONE;
+        if      (strcmp(filter_cstr, "keep_all")           == 0) { filter_type = TCL_FILTER_TYPE_KEEP_ALL; }
+        else if (strcmp(filter_cstr, "keep_begin")         == 0) { filter_type = TCL_FILTER_TYPE_KEEP_BEGIN; }
+        else if (strcmp(filter_cstr, "keep_end")           == 0) { filter_type = TCL_FILTER_TYPE_KEEP_END;   }
+        else if (strcmp(filter_cstr, "keep_begin_and_end") == 0) { filter_type = TCL_FILTER_TYPE_KEEP_BEGIN_AND_END; }
+        else { rb_raise(rb_eTypeError, "`$tcl_filter[n][:filter]' is invalid instruction"); }
+
+        VALUE keep_size = rb_hash_aref(v, rb_str_intern(rb_str_new2("keep_size")));
+        if (!rb_obj_is_kind_of(keep_size, rb_cInteger)) { rb_raise(rb_eTypeError, "class of `$tcl_filter[n][:keep_size]' is not Integer"); }
+
+        tcl_filter_t *tcl_filter = (tcl_filter_type*)malloc(sizeof(tcl_filter_t));
+        *tcl_filter = (tcl_filter_t) {
+            rb_str_to_cstr(name),
+            filter_type,
+            NUM2INT(keep_size)
+        };
+        tcl_filters[i] = tcl_filter;
+    }
+}
+
 int tcl_log_size() {
     tcl_frame_t *f_tmp = tcl_frame_head;
     if (f_tmp->next == NULL) { return 0; } // 最初はスキップ(MRIにおけるダミー)
@@ -82,11 +127,15 @@ void tcl_print(void) {
 }
 
 void tcl_push(char *method_name) {
+    char* prev_method_name = tcl_frame_tail // unless root
+                             ? tcl_frame_tail->name
+                             : "";
     tcl_filter_type filter_type = TCL_FILTER_TYPE_KEEP_NONE;
-    if (tcl_frame_tail) { // unless root
-        char* prev_method_name = tcl_frame_tail->name;
-        if (prev_method_name && strcmp(prev_method_name, "x") == 0) {
-            filter_type = TCL_FILTER_TYPE_KEEP_ALL;
+    int keep_size = 0;
+    for (long i = 0; i < tcl_filters_size; i++) {
+        if (strcmp(prev_method_name, tcl_filters[i]->name) == 0) {
+            filter_type = tcl_filters[i]->filter_type;
+            keep_size = tcl_filters[i]->keep_size;
         }
     }
     // allocate
@@ -99,7 +148,7 @@ void tcl_push(char *method_name) {
         tcl_frame_tail, // prev
         NULL, // next
         filter_type, // filter_type
-        0, // keep_size
+        keep_size, // keep_size
         false // truncated
     };
     // push
