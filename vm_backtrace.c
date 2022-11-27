@@ -697,14 +697,16 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             loc->tailcall = true;
             loc->tailcall_omitted_next_calls =
                 (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN && i == 0) ||
-                (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END && i == f->keep_size && f->tailcall_methods_size == f->keep_size * 2);
+                (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END
+                 && i == f->keep_size && f->tailcall_methods_size == f->keep_size * 2);
             tailcall_method = tailcall_method->prev;
         }
         tailcall_omitted_next_calls_flag =
             (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_END) ||
             (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) ||
             (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) ||
-            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN && f->tailcall_methods_size == 0 /* 例外的 */);
+            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN
+             && f->tailcall_methods_size == 0 /* 例外的 */);
         f = f->prev;
     }
 
