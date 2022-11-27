@@ -37,15 +37,14 @@
 #include "vm_backtrace.h"
 #include "tcl.h"
 
-static tcl_frame_t tcl_frame_root = { 0, "ROOT", NULL, NULL, NULL, NULL, TCL_FILTER_TYPE_KEEP_ALL, 0, false };
-static tcl_frame_t *tcl_frame_head = &tcl_frame_root,
-                   *tcl_frame_tail = &tcl_frame_root;
+static tcl_frame_t *tcl_frame_head = NULL,
+                   *tcl_frame_tail = NULL;
 
 int tcl_log_size() {
     tcl_frame_t *f_tmp = tcl_frame_head;
-    // 最初の2つはスキップ(1つ目Root用のダミー、2つ目はMRIにおけるダミー)
-    if (f_tmp->next->next == NULL) { return; }
-    f_tmp = f_tmp->next->next;
+    // 最初はスキップ(MRIにおけるダミー)
+    if (f_tmp->next == NULL) { return; }
+    f_tmp = f_tmp->next;
 
     int count = 0;
     while (1) {
@@ -66,9 +65,9 @@ tcl_frame_t* tcl_at(int n) {
 
 void tcl_print(void) {
     tcl_frame_t *f_tmp = tcl_frame_head;
-    // 最初の2つはスキップ(1つ目Root用のダミー、2つ目はMRIにおけるダミー)
-    if (f_tmp->next->next == NULL) { return; }
-    f_tmp = f_tmp->next->next;
+    // 最初はスキップ(MRIにおけるダミー)
+    if (f_tmp->next == NULL) { return; }
+    f_tmp = f_tmp->next;
 
     while (1) {
         printf(" %s ->", f_tmp->name);
@@ -92,6 +91,15 @@ void tcl_print(void) {
 }
 
 void tcl_push(char *method_name) {
+    tcl_filter_type filter_type = TCL_FILTER_TYPE_KEEP_NONE;
+    if (tcl_frame_tail) { // unless root
+        char* prev_method_name = tcl_frame_tail->name;
+        /* printf("prev_method_name: %s\n", prev_method_name); */
+        if (prev_method_name && strcmp(prev_method_name, "x") == 0) {
+            filter_type = TCL_FILTER_TYPE_KEEP_ALL;
+        }
+    }
+
     // allocate
     tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
     *new_frame = (tcl_frame_t) {
@@ -101,13 +109,18 @@ void tcl_push(char *method_name) {
         0, // tailcall_methods_size
         tcl_frame_tail, // prev
         NULL, // next
-        TCL_FILTER_TYPE_KEEP_NONE, // filter_type
+        filter_type, // filter_type
         0, // keep_size
         false // truncated
     };
     // push
-    tcl_frame_tail->next = new_frame;
-    tcl_frame_tail = new_frame;
+    if (tcl_frame_tail == NULL) { // Root
+        tcl_frame_tail = new_frame;
+        tcl_frame_head = new_frame;
+    } else {
+        tcl_frame_tail->next = new_frame;
+        tcl_frame_tail = new_frame;
+    }
 }
 
 void tcl_pop(void) {
@@ -137,23 +150,23 @@ void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc);
 void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
     int size = tcl_frame_tail->tailcall_methods_size;
     int keep_size = tcl_frame_tail->keep_size;
-    if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
-        tcl_frame_tail->truncated = true;
-        return;
-    }
     switch(tcl_frame_tail->filter_type) {
       case TCL_FILTER_TYPE_KEEP_NONE:
         tcl_frame_tail->truncated = true;
         break;
       case TCL_FILTER_TYPE_KEEP_BEGIN:
-        if (size >= keep_size) {
+        if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
+            tcl_frame_tail->truncated = true;
+        } else if (size >= keep_size) {
             tcl_frame_tail->truncated = true;
         } else {
             tcl_record__filter_type_all(iseq, pc);
         }
         break;
       case TCL_FILTER_TYPE_KEEP_END:
-        if (size >= keep_size) {
+        if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
+            tcl_frame_tail->truncated = true;
+        } else if (size >= keep_size) {
             if (size == 1) { // 1個のときは付け替えが例外的な処理になる
                 tcl_record__filter_type_end_size1(iseq, pc);
             } else {
@@ -164,7 +177,9 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
         }
         break;
       case TCL_FILTER_TYPE_KEEP_BEGIN_AND_END:
-        if (size >= keep_size * 2) {
+        if (keep_size == 0) {
+            tcl_frame_tail->truncated = true;
+        } else if (size >= keep_size * 2) {
             tcl_record__filter_type_begin_end(iseq, pc);
         } else {
           tcl_record__filter_type_all(iseq, pc);
