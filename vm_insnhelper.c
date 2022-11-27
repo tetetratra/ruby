@@ -37,8 +37,9 @@
 #include "vm_backtrace.h"
 #include "tcl.h"
 
-static tcl_frame_t *tcl_frame_head = NULL,
-                   *tcl_frame_tail = NULL;
+tcl_frame_t *tcl_frame_head = NULL,
+            *tcl_frame_tail = NULL;
+tcl_frame_t* get_tcl_frame_tail() { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
 
 int tcl_log_size() {
     tcl_frame_t *f_tmp = tcl_frame_head;
@@ -53,14 +54,6 @@ int tcl_log_size() {
         f_tmp = f_tmp->next;
     }
     return count;
-}
-
-tcl_frame_t* tcl_at(int n) {
-    tcl_frame_t *f_tmp = tcl_frame_tail;
-    for(int i = 0; i < n; i++) {
-        f_tmp = f_tmp->prev;
-    }
-    return f_tmp;
 }
 
 void tcl_print(void) {

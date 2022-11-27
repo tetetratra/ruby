@@ -1,5 +1,3 @@
-// #include "method.h"
-
 typedef struct tcl_tailcall_method_struct {
     rb_iseq_t *iseq;
     VALUE *pc;

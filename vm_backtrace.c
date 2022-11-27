@@ -21,7 +21,7 @@
 #include "tcl.h"
 
 int tcl_log_size();
-tcl_frame_t* tcl_at(int n);
+tcl_frame_t* get_tcl_frame_tail();
 
 static VALUE rb_cBacktrace;
 static VALUE rb_cBacktraceLocation;
@@ -646,8 +646,9 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         return btobj;
     }
 
-    int tcl_at_index = 0;
     bool tailcall_omitted_next_calls_flag = false;
+    tcl_frame_t *f = get_tcl_frame_tail();
+
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
         if (cfp->iseq) {
             if (cfp->pc) {
@@ -687,7 +688,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 cfunc_counter++;
             }
         }
-        tcl_frame_t *f = tcl_at(tcl_at_index);
         tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
         for (int i = 0; i < f->tailcall_methods_size; i++) {
             loc = &bt->backtrace[bt->backtrace_size++];
@@ -705,7 +705,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) ||
             (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) ||
             (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN && f->tailcall_methods_size == 0 /* 例外的 */);
-        tcl_at_index++;
+        f = f->prev;
     }
 
     if (cfunc_counter > 0) {
