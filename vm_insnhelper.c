@@ -71,7 +71,8 @@ void set_tcl_filters(VALUE val) {
         else if (strcmp(filter_cstr, "keep_begin")         == 0) { filter_type = TCL_FILTER_TYPE_KEEP_BEGIN; }
         else if (strcmp(filter_cstr, "keep_end")           == 0) { filter_type = TCL_FILTER_TYPE_KEEP_END;   }
         else if (strcmp(filter_cstr, "keep_begin_and_end") == 0) { filter_type = TCL_FILTER_TYPE_KEEP_BEGIN_AND_END; }
-        else { rb_raise(rb_eTypeError, "`$tcl_filter[n][:filter]' is invalid instruction"); }
+        else if (strcmp(filter_cstr, "keep_none")          == 0) { filter_type = TCL_FILTER_TYPE_KEEP_NONE; }
+        else { rb_raise(rb_eTypeError, "`$tcl_filter[n][:filter]' is invalid"); }
 
         VALUE keep_size = rb_hash_aref(v, rb_str_intern(rb_str_new2("keep_size")));
         if (!rb_obj_is_kind_of(keep_size, rb_cInteger)) { rb_raise(rb_eTypeError, "class of `$tcl_filter[n][:keep_size]' is not Integer"); }
@@ -94,7 +95,21 @@ int tcl_log_size() {
     int count = 0;
     while (1) {
         count += f_tmp->tailcall_methods_size;
-        if (f_tmp->next == NULL) break;
+        if (f_tmp->next == NULL) { break; }
+        f_tmp = f_tmp->next;
+    }
+    return count;
+}
+
+int tcl_truncated_size() {
+    tcl_frame_t *f_tmp = tcl_frame_head;
+    if (f_tmp->next == NULL) { return 0; } // 最初はスキップ(MRIにおけるダミー)
+    f_tmp = f_tmp->next;
+
+    int count = 0;
+    while (1) {
+        if (f_tmp->truncated) { count += 1; }
+        if (f_tmp->next == NULL) { break; }
         f_tmp = f_tmp->next;
     }
     return count;
@@ -271,6 +286,7 @@ void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc) {
     // headを削除
     tcl_frame_tail->tailcall_methods_head = tcl_frame_tail->tailcall_methods_head->next;
     free(tcl_frame_tail->tailcall_methods_head->prev);
+    tcl_frame_tail->tailcall_methods_head->prev = NULL;
 
     tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
     *new_method_name = (tcl_tailcall_method_t) {

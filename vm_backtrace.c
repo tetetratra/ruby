@@ -21,6 +21,7 @@
 #include "tcl.h"
 
 int tcl_log_size();
+int tcl_truncated_size();
 tcl_frame_t* get_tcl_frame_tail();
 VALUE get_tcl_filters();
 void set_tcl_filters(VALUE);
@@ -124,6 +125,7 @@ typedef struct rb_backtrace_location_struct {
     enum LOCATION_TYPE {
         LOCATION_TYPE_ISEQ = 1,
         LOCATION_TYPE_CFUNC,
+        LOCATION_TYPE_TRUNCATED,
     } type;
 
     const rb_iseq_t *iseq;
@@ -131,7 +133,7 @@ typedef struct rb_backtrace_location_struct {
     ID mid;
 
     bool tailcall;
-    bool tailcall_omitted_next_calls;
+    /* bool tailcall_omitted_next_calls; */
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -392,15 +394,9 @@ location_absolute_path_m(VALUE self)
 }
 
 static VALUE
-location_format(VALUE file, int lineno, VALUE name, bool tailcall, bool tailcall_omitted_next_calls)
+location_format(VALUE file, int lineno, VALUE name, bool tailcall)
 {
-    VALUE s = rb_str_new(0, 0);
-    if (tailcall_omitted_next_calls) {
-        // TODO: filter_type も受け取って、truncateされた理由を表示してもいいかも
-        rb_str_cat_cstr(s, "... (truncated tailcalls)\n");
-    }
-    VALUE ss = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
-    rb_str_concat(s, ss);
+    VALUE s = rb_enc_sprintf(rb_enc_compatible(file, name), "%s", RSTRING_PTR(file));
     if (lineno != 0) {
         rb_str_catf(s, ":%d", lineno);
     }
@@ -441,11 +437,13 @@ location_to_str(rb_backtrace_location_t *loc)
         }
         name = rb_id2str(loc->mid);
         break;
+      case LOCATION_TYPE_TRUNCATED:
+        return rb_str_new2("     .\n     . (discarded tailcalls)\n     .");
       default:
         rb_bug("location_to_str: unreachable");
     }
 
-    return location_format(file, lineno, name, loc->tailcall, loc->tailcall_omitted_next_calls);
+    return location_format(file, lineno, name, loc->tailcall);
 }
 
 /*
@@ -601,6 +599,14 @@ bt_yield_loc(rb_backtrace_location_t *loc, long num_frames, VALUE btobj)
     }
 }
 
+static void
+insert_truncated_location(rb_backtrace_location_t* loc) {
+    loc->type = LOCATION_TYPE_TRUNCATED;
+    loc->iseq = NULL;
+    loc->pc = NULL;
+    loc->tailcall = false;
+}
+
 static VALUE
 rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_frame, long num_frames, int* start_too_large, bool skip_internal, bool do_yield)
 {
@@ -640,6 +646,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
     }
 
     num_frames += tcl_log_size();
+    num_frames += tcl_truncated_size();
 
     bt->backtrace = ZALLOC_N(rb_backtrace_location_t, num_frames);
     bt->backtrace_size = 0;
@@ -647,8 +654,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         if (start_too_large) *start_too_large = 0;
         return btobj;
     }
-
-    bool tailcall_omitted_next_calls_flag = false;
     tcl_frame_t *f = get_tcl_frame_tail();
 
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
@@ -665,7 +670,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     loc->iseq = iseq;
                     loc->pc = pc;
                     loc->tailcall = false;
-                    loc->tailcall_omitted_next_calls = tailcall_omitted_next_calls_flag;
                     bt_update_cfunc_loc(cfunc_counter, loc-1, iseq, pc);
                     if (do_yield) {
                         bt_yield_loc(loc - cfunc_counter, cfunc_counter+1, btobj);
@@ -685,30 +689,38 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                 loc->iseq = NULL;
                 loc->pc = NULL;
                 loc->tailcall = false;
-                loc->tailcall_omitted_next_calls = tailcall_omitted_next_calls_flag;
                 loc->mid = rb_vm_frame_method_entry(cfp)->def->original_id;
                 cfunc_counter++;
             }
         }
-        tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
-        for (int i = 0; i < f->tailcall_methods_size; i++) {
+
+        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN) {
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++]);
+        }
+        for (
+            tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
+            tailcall_method != NULL;
+            tailcall_method = tailcall_method->prev
+        ) {
             loc = &bt->backtrace[bt->backtrace_size++];
             loc->type = LOCATION_TYPE_ISEQ;
             loc->iseq = tailcall_method->iseq;
             loc->pc = tailcall_method->pc;
             loc->tailcall = true;
-            loc->tailcall_omitted_next_calls =
-                (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN && i == 0) ||
-                (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END
-                 && i == f->keep_size && f->tailcall_methods_size == f->keep_size * 2);
-            tailcall_method = tailcall_method->prev;
         }
-        tailcall_omitted_next_calls_flag =
-            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_END) ||
-            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) ||
-            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) ||
-            (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN
-             && f->tailcall_methods_size == 0 /* 例外的 */);
+        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) {
+            // 半分まで1個ずつシフトして、空いた場所に...を入れる
+            for (int pos = bt->backtrace_size; pos > bt->backtrace_size - f->keep_size; pos--) {
+                bt->backtrace[pos] = bt->backtrace[pos - 1];
+            }
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++ - f->keep_size]);
+        }
+        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) {
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++]);
+        }
+        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_END) {
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++]);
+        }
         f = f->prev;
     }
 
