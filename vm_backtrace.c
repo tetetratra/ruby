@@ -133,7 +133,7 @@ typedef struct rb_backtrace_location_struct {
     ID mid;
 
     bool tailcall;
-    /* bool tailcall_omitted_next_calls; */
+    int truncated_size;
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -438,7 +438,7 @@ location_to_str(rb_backtrace_location_t *loc)
         name = rb_id2str(loc->mid);
         break;
       case LOCATION_TYPE_TRUNCATED:
-        return rb_str_new2("     .\n     . (discarded tailcalls)\n     .");
+        return rb_sprintf("... (discarded %d tailcalls) ...", loc->truncated_size);
       default:
         rb_bug("location_to_str: unreachable");
     }
@@ -600,11 +600,12 @@ bt_yield_loc(rb_backtrace_location_t *loc, long num_frames, VALUE btobj)
 }
 
 static void
-insert_truncated_location(rb_backtrace_location_t* loc) {
+insert_truncated_location(rb_backtrace_location_t* loc, int truncated_size) {
     loc->type = LOCATION_TYPE_TRUNCATED;
     loc->iseq = NULL;
     loc->pc = NULL;
     loc->tailcall = false;
+    loc->truncated_size = truncated_size;
 }
 
 static VALUE
@@ -694,8 +695,8 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             }
         }
 
-        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN) {
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++]);
+        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN) {
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++], f->truncated_size);
         }
         for (
             tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
@@ -708,18 +709,18 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             loc->pc = tailcall_method->pc;
             loc->tailcall = true;
         }
-        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) {
+        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) {
             // 半分まで1個ずつシフトして、空いた場所に...を入れる
             for (int pos = bt->backtrace_size; pos > bt->backtrace_size - f->keep_size; pos--) {
                 bt->backtrace[pos] = bt->backtrace[pos - 1];
             }
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++ - f->keep_size]);
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++ - f->keep_size], f->truncated_size);
         }
-        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) {
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++]);
+        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) {
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++], f->truncated_size);
         }
-        if (f->truncated && f->filter_type == TCL_FILTER_TYPE_KEEP_END) {
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++]);
+        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_END) {
+            insert_truncated_location(&bt->backtrace[bt->backtrace_size++], f->truncated_size);
         }
         f = f->prev;
     }

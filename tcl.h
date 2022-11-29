@@ -23,7 +23,7 @@ typedef struct tcl_frame_struct {
 
     tcl_filter_type filter_type;
     int keep_size;
-    bool truncated;
+    int truncated_size;
 } tcl_frame_t;
 
 typedef struct tcl_filter_struct {

@@ -108,7 +108,7 @@ int tcl_truncated_size() {
 
     int count = 0;
     while (1) {
-        if (f_tmp->truncated) { count += 1; }
+        if (f_tmp->truncated_size > 0) { count += 1; }
         if (f_tmp->next == NULL) { break; }
         f_tmp = f_tmp->next;
     }
@@ -164,7 +164,7 @@ void tcl_push(char *method_name) {
         NULL, // next
         filter_type, // filter_type
         keep_size, // keep_size
-        false // truncated
+        0 // truncated_size
     };
     // push
     if (tcl_frame_tail == NULL) { // if Root
@@ -205,20 +205,20 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
 
     switch(tcl_frame_tail->filter_type) {
       case TCL_FILTER_TYPE_KEEP_NONE:
-        tcl_frame_tail->truncated = true;
+        tcl_frame_tail->truncated_size++;
         break;
       case TCL_FILTER_TYPE_KEEP_BEGIN:
         if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
-            tcl_frame_tail->truncated = true;
+            tcl_frame_tail->truncated_size++;
         } else if (size >= keep_size) {
-            tcl_frame_tail->truncated = true;
+            tcl_frame_tail->truncated_size++;
         } else {
             tcl_record__filter_type_all(iseq, pc);
         }
         break;
       case TCL_FILTER_TYPE_KEEP_END:
         if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
-            tcl_frame_tail->truncated = true;
+            tcl_frame_tail->truncated_size++;
         } else if (size >= keep_size) {
             if (size == 1) { // 1個のときは付け替えが例外的な処理になる
                 tcl_record__filter_type_end_size1(iseq, pc);
@@ -231,7 +231,7 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
         break;
       case TCL_FILTER_TYPE_KEEP_BEGIN_AND_END:
         if (keep_size == 0) {
-            tcl_frame_tail->truncated = true;
+            tcl_frame_tail->truncated_size++;
         } else if (size >= keep_size * 2) {
             tcl_record__filter_type_begin_end(iseq, pc);
         } else {
@@ -279,7 +279,7 @@ void tcl_record__filter_type_end_size1(const rb_iseq_t *iseq, VALUE *pc) {
 
     tcl_frame_tail->tailcall_methods_head = new_method_name;
     tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    tcl_frame_tail->truncated = true;
+    tcl_frame_tail->truncated_size++;
 }
 
 void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc) {
@@ -298,7 +298,7 @@ void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc) {
 
     tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
     tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    tcl_frame_tail->truncated = true;
+    tcl_frame_tail->truncated_size++;
 }
 
 void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc) {
@@ -321,7 +321,7 @@ void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc) {
     delete_method->prev->next = delete_method->next;
     delete_method->next->prev = delete_method->prev;
     free(delete_method);
-    tcl_frame_tail->truncated = true;
+    tcl_frame_tail->truncated_size++;
 }
 
 

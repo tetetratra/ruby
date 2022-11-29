@@ -1,5 +1,5 @@
 $tcl_filter = [
-  { method: 'a', filter: :keep_begin_and_end, keep_size: 3 }
+  { method: 'a', filter: :keep_begin_and_end, keep_size: 2 }
 ]
 
 def a()
@@ -7,6 +7,7 @@ def a()
 end
 
 def d()
+  raise
   caller_locations(0)
 end
 
