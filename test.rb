@@ -1,14 +1,13 @@
 $tcl_filter = [
-  { method: 'a', filter: :keep_begin_and_end, keep_size: 2 }
+  { method: 'a', filter: :keep_end, keep_size: 3 }
 ]
 
 def a()
-  b(5)
+  b(4)
 end
 
 def d()
   raise
-  caller_locations(0)
 end
 
 RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
@@ -17,5 +16,5 @@ RubyVM::InstructionSequence.compile(
   'tailcall.rb'
 ).eval
 
-puts a()
+a()
 

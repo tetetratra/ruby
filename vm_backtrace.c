@@ -408,7 +408,10 @@ location_format(VALUE file, int lineno, VALUE name, bool tailcall)
         rb_str_catf(s, "`%s'", RSTRING_PTR(name));
     }
     if (tailcall) {
-        rb_str_cat_cstr(s, " (tailcall)");
+        rb_str_cat_cstr(s, " ");
+        rb_str_cat_cstr(s, "\x1B[32;1m"); // 赤開始
+        rb_str_cat_cstr(s, "(tailcall)");
+        rb_str_cat_cstr(s, "\x1B[37;m"); // 色終了
     }
     return s;
 }
@@ -416,7 +419,7 @@ location_format(VALUE file, int lineno, VALUE name, bool tailcall)
 static VALUE
 location_to_str(rb_backtrace_location_t *loc)
 {
-    VALUE file, name;
+    VALUE file, name, s;
     int lineno;
 
     switch (loc->type) {
@@ -438,7 +441,12 @@ location_to_str(rb_backtrace_location_t *loc)
         name = rb_id2str(loc->mid);
         break;
       case LOCATION_TYPE_TRUNCATED:
-        return rb_sprintf("... (discarded %d tailcalls) ...", loc->truncated_size);
+        s = rb_str_new2(" ");
+        rb_str_cat_cstr(s, "\x1B[31;1m"); // 青開始
+        rb_str_catf(s, "... (discarded %d tailcalls) ...", loc->truncated_size);
+        rb_str_cat_cstr(s, "\x1B[37;m"); // 色終了
+        return s;
+        break;
       default:
         rb_bug("location_to_str: unreachable");
     }
