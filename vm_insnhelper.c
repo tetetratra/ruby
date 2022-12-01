@@ -35,7 +35,7 @@
 
 #include "vm_debug.h"
 #include "vm_backtrace.h"
-#include "tcl.h"
+#include "tailcall.h"
 
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;

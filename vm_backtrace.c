@@ -18,7 +18,7 @@
 #include "vm_core.h"
 
 #include "vm_debug.h"
-#include "tcl.h"
+#include "tailcall.h"
 
 int tcl_log_size();
 int tcl_truncated_size();
