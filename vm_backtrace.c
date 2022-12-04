@@ -20,12 +20,6 @@
 #include "vm_debug.h"
 #include "tailcall.h"
 
-int tcl_log_size();
-int tcl_truncated_size();
-tcl_frame_t* get_tcl_frame_tail();
-VALUE get_tcl_filters();
-void set_tcl_filters(VALUE);
-
 static VALUE rb_cBacktrace;
 static VALUE rb_cBacktraceLocation;
 

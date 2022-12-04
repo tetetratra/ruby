@@ -1,5 +1,5 @@
 $tcl_filter = [
-  { method: 'a', filter: :keep_end, keep_size: 3 }
+  { method: 'a', filter: :keep_all, keep_size: 3 }
 ]
 
 def a()
