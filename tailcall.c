@@ -22,6 +22,8 @@
 #include "internal/struct.h"
 #include "variable.h"
 
+VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
+
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 tcl_frame_t* get_tcl_frame_tail(void) { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
@@ -63,7 +65,7 @@ void set_tcl_filters(VALUE val) {
 
         char* s = malloc(sizeof(char) * strlen(RSTRING_PTR(name)) + 1);
         strcpy(s, RSTRING_PTR(name));
-        tcl_filter_t *tcl_filter = (tcl_filter_type*)malloc(sizeof(tcl_filter_t));
+        tcl_filter_t *tcl_filter = (tcl_filter_t*)malloc(sizeof(tcl_filter_t));
         *tcl_filter = (tcl_filter_t) {
             s,
             filter_type,
