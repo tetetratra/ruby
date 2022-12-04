@@ -2697,8 +2697,8 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
         }
     }
 
-    vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
     tcl_record(cfp->iseq, cfp->pc);
+    vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
     /* tcl_print(); */
 
     cfp = ec->cfp;
@@ -2719,6 +2719,9 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
                   ISEQ_BODY(iseq)->iseq_encoded + opt_pc, sp,
                   ISEQ_BODY(iseq)->local_table_size - ISEQ_BODY(iseq)->param.size,
                   ISEQ_BODY(iseq)->stack_max);
+
+    char *method_name = iseq ? StringValuePtr(ISEQ_BODY(iseq)->location.label) : "<cfunc>";
+    tcl_change_top(method_name);
 
     cfp->sp = sp_orig;
 

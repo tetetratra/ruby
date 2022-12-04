@@ -312,3 +312,7 @@ void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc) {
     tcl_frame_tail->truncated_size++;
 }
 
+void tcl_change_top(char *method_name) {
+    tcl_frame_tail->name = method_name;
+}
+
