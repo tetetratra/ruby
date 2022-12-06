@@ -42,7 +42,7 @@ tcl_frame_t* get_tcl_frame_tail(void);
 VALUE get_tcl_filters(void);
 void set_tcl_filters(VALUE val);
 
-int tcl_log_size(void);
+long tcl_log_size(void);
 int tcl_truncated_size(void);
 void tcl_print(void);
 void tcl_push(char *method_name);

@@ -27,6 +27,7 @@ VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 tcl_frame_t* get_tcl_frame_tail(void) { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
+long tailcall_methods_size_sum = 0;
 
 tcl_filter_t** tcl_filters = NULL; // 定数ではない rb_ary_new() による初期化はできないのでnilで初期化している
 long tcl_filters_size = 0;
@@ -75,18 +76,8 @@ void set_tcl_filters(VALUE val) {
     }
 }
 
-int tcl_log_size(void) {
-    tcl_frame_t *f_tmp = tcl_frame_head;
-    if (f_tmp->next == NULL) { return 0; } // 最初はスキップ(MRIにおけるダミー)
-    f_tmp = f_tmp->next;
-
-    int count = 0;
-    while (1) {
-        count += f_tmp->tailcall_methods_size;
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
-    }
-    return count;
+long tcl_log_size(void) { // FIXME: 「このフレーム以降のサイズ」を返せるようにする
+    return tailcall_methods_size_sum;
 }
 
 int tcl_truncated_size(void) {
@@ -104,29 +95,26 @@ int tcl_truncated_size(void) {
 }
 
 void tcl_print(void) {
-    tcl_frame_t *f_tmp = tcl_frame_head;
-    if (f_tmp->next == NULL) { return; } // 最初はスキップ(MRIにおけるダミー)
-    f_tmp = f_tmp->next;
+    tcl_frame_t *f_tmp = tcl_frame_tail;
 
     while (1) {
-        printf(" %s ->", f_tmp->name);
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        printf("        from %s\n", f_tmp->name);
+        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_tail;
         if (m_tmp != NULL) {
             while (1) {
                 printf(
-                    " %s:%s:%d =>",
-                    StringValuePtr(ISEQ_BODY(m_tmp->iseq)->location.label),
+                    "        from %s:%d:in `%s' (tailcall)\n",
                     RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
-                    calc_lineno(m_tmp->iseq, m_tmp->pc)
+                    calc_lineno(m_tmp->iseq, m_tmp->pc),
+                    StringValuePtr(ISEQ_BODY(m_tmp->iseq)->location.label)
                 );
-                if (m_tmp->next == NULL) break;
-                m_tmp = m_tmp->next;
+                if (m_tmp->prev == NULL) { break; }
+                m_tmp = m_tmp->prev;
             }
         }
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
+        if (f_tmp->prev == NULL) { break; }
+        f_tmp = f_tmp->prev;
     }
-    printf("\n");
 }
 
 void tcl_push(char *method_name) {
@@ -236,6 +224,7 @@ void tcl_record__filter_type_all(const rb_iseq_t *iseq, VALUE *pc) {
     int size = tcl_frame_tail->tailcall_methods_size;
 
     tcl_frame_tail->tailcall_methods_size += 1;
+    tailcall_methods_size_sum += 1;
 
     tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
     *new_method_name = (tcl_tailcall_method_t) {
