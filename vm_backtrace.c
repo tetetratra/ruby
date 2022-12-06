@@ -648,8 +648,8 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         }
     }
 
-    num_frames += tcl_log_size();
-    num_frames += tcl_truncated_size();
+    num_frames += tcl_log_size(); // FIXME: caller_locations(n)のnが0以外のケースも考慮する
+    num_frames += tcl_truncated_size(); // FIXME: caller_locations(n)のnが0以外のケースも考慮する
 
     bt->backtrace = ZALLOC_N(rb_backtrace_location_t, num_frames);
     bt->backtrace_size = 0;
