@@ -120,7 +120,14 @@ void tcl_pop(void) {
 }
 
 void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
-    int size = tcl_frame_tail->tailcall_methods_size;
+    int i = 0;
+    if (TCL_MAX <= tailcall_methods_size_sum) {
+        printf("Reach limit!!! please enter expression to indicate what logs to discard.\n\n");
+        tcl_print();
+        printf("> ");
+        scanf("%d", &i);
+        printf("i: %d\n", i);
+    }
 
     tcl_frame_tail->tailcall_methods_size += 1;
     tailcall_methods_size_sum += 1;
@@ -139,15 +146,6 @@ void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
     } else {
         tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
         tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    }
-
-    int i = 0;
-    if (TCL_MAX <= tailcall_methods_size_sum) {
-        printf("Reach limit!!! please enter expression to indicate what logs to discard.\n\n");
-        tcl_print();
-        printf("> ");
-        scanf("%d", &i);
-        printf("i: %d\n", i);
     }
 }
 

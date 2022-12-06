@@ -1,5 +1,5 @@
 def a()
-  b(5)
+  b(6)
 end
 
 def d()
