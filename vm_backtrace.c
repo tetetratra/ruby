@@ -649,7 +649,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
     }
 
     num_frames += tcl_log_size(); // FIXME: caller_locations(n)のnが0以外のケースも考慮する
-    num_frames += tcl_truncated_size(); // FIXME: caller_locations(n)のnが0以外のケースも考慮する
 
     bt->backtrace = ZALLOC_N(rb_backtrace_location_t, num_frames);
     bt->backtrace_size = 0;
@@ -697,9 +696,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             }
         }
 
-        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN) {
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++], f->truncated_size);
-        }
         for (
             tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
             tailcall_method != NULL;
@@ -710,19 +706,6 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             loc->iseq = tailcall_method->iseq;
             loc->pc = tailcall_method->pc;
             loc->tailcall = true;
-        }
-        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_BEGIN_AND_END) {
-            // 半分まで1個ずつシフトして、空いた場所に...を入れる
-            for (int pos = bt->backtrace_size; pos > bt->backtrace_size - f->keep_size; pos--) {
-                bt->backtrace[pos] = bt->backtrace[pos - 1];
-            }
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++ - f->keep_size], f->truncated_size);
-        }
-        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_NONE) {
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++], f->truncated_size);
-        }
-        if (f->truncated_size > 0 && f->filter_type == TCL_FILTER_TYPE_KEEP_END) {
-            insert_truncated_location(&bt->backtrace[bt->backtrace_size++], f->truncated_size);
         }
         f = f->prev;
     }
@@ -1337,14 +1320,10 @@ each_caller_location(VALUE unused)
     return Qnil;
 }
 
-VALUE tcl_filter_getter(ID _id) { return get_tcl_filters(); }
-void tcl_filter_setter(VALUE val, ID _id) { set_tcl_filters(val); }
-
 /* called from Init_vm() in vm.c */
 void
 Init_vm_backtrace(void)
 {
-    rb_define_virtual_variable("$tcl_filter", tcl_filter_getter, tcl_filter_setter);
     /*
      *  An internal representation of the backtrace. The user will never interact with
      *  objects of this class directly, but class methods can be used to get backtrace

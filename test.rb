@@ -1,9 +1,5 @@
-$tcl_filter = [
-  { method: 'a', filter: :keep_all, keep_size: 3 }
-]
-
 def a()
-  b(4)
+  b(5)
 end
 
 def d()
