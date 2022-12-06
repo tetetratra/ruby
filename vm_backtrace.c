@@ -35,6 +35,10 @@ id2str(ID id)
 #define BACKTRACE_START 0
 #define ALL_BACKTRACE_LINES -1
 
+#define ESCAPE_SEQUENCES_RED    "\x1B[31;1m"
+#define ESCAPE_SEQUENCES_GREEN  "\x1B[32;1m"
+#define ESCAPE_SEQUENCES_RESET  "\x1B[37;m"
+
 int
 calc_pos(const rb_iseq_t *iseq, const VALUE *pc, int *lineno, int *node_id)
 {
@@ -402,10 +406,9 @@ location_format(VALUE file, int lineno, VALUE name, bool tailcall)
         rb_str_catf(s, "`%s'", RSTRING_PTR(name));
     }
     if (tailcall) {
-        rb_str_cat_cstr(s, " ");
-        rb_str_cat_cstr(s, "\x1B[32;1m"); // 赤開始
-        rb_str_cat_cstr(s, "(tailcall)");
-        rb_str_cat_cstr(s, "\x1B[37;m"); // 色終了
+        rb_str_catf(s, " %s(tailcall)%s",
+                ESCAPE_SEQUENCES_GREEN,
+                ESCAPE_SEQUENCES_RESET);
     }
     return s;
 }
@@ -436,9 +439,13 @@ location_to_str(rb_backtrace_location_t *loc)
         break;
       case LOCATION_TYPE_TRUNCATED:
         s = rb_str_new2(" ");
-        rb_str_cat_cstr(s, "\x1B[31;1m"); // 青開始
-        rb_str_catf(s, "... (discarded %d tailcalls) ...", loc->truncated_size);
-        rb_str_cat_cstr(s, "\x1B[37;m"); // 色終了
+        rb_str_cat_cstr(s, ESCAPE_SEQUENCES_RED); // 赤開始
+        rb_str_catf(s,
+            " %s... (discarded %d tailcalls) ...%s",
+            ESCAPE_SEQUENCES_RED,
+            loc->truncated_size,
+            ESCAPE_SEQUENCES_RESET
+        );
         return s;
         break;
       default:

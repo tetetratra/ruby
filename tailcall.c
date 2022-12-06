@@ -27,6 +27,12 @@ VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
 
 #define TCL_MAX 10
 
+#define ESCAPE_SEQUENCES_RED    "\x1B[31;1m"
+#define ESCAPE_SEQUENCES_GREEN  "\x1B[32;1m"
+#define ESCAPE_SEQUENCES_YELLOW "\x1B[33;1m"
+#define ESCAPE_SEQUENCES_BLUE   "\x1B[34;1m"
+#define ESCAPE_SEQUENCES_RESET  "\x1B[37;m"
+
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 tcl_frame_t* get_tcl_frame_tail(void) { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
@@ -51,16 +57,17 @@ void tcl_print(void) {
             RSTRING_PTR(rb_iseq_path(f_tmp->iseq)),
             calc_lineno(f_tmp->iseq, f_tmp->pc),
             f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "<cfunc>",
-            first_call ? " (calling)" : ""
+            first_call ? ESCAPE_SEQUENCES_BLUE" (calling)"ESCAPE_SEQUENCES_RESET : ""
         );
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_tail;
         if (m_tmp != NULL) {
             while (1) {
                 printf(
-                    "        from %s:%d:in `%s' (tailcall)\n",
+                    "        from %s:%d:in `%s' %s\n",
                     RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
                     calc_lineno(m_tmp->iseq, m_tmp->pc),
-                    calc_method_name(m_tmp->iseq)
+                    calc_method_name(m_tmp->iseq),
+                    ESCAPE_SEQUENCES_GREEN"(tailcall)"ESCAPE_SEQUENCES_RESET
                 );
                 if (m_tmp->prev == NULL) { break; }
                 m_tmp = m_tmp->prev;
