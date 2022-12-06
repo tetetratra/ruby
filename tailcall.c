@@ -24,6 +24,8 @@
 
 VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
 
+#define TCL_MAX 10
+
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 tcl_frame_t* get_tcl_frame_tail(void) { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
@@ -170,58 +172,9 @@ void tcl_pop(void) {
     free(tail_frame);
 }
 
-void tcl_record__filter_type_all(const rb_iseq_t *iseq, VALUE *pc);
-void tcl_record__filter_type_end_size1(const rb_iseq_t *iseq, VALUE *pc);
-void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc);
-void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc);
-
 void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
     int size = tcl_frame_tail->tailcall_methods_size;
     int keep_size = tcl_frame_tail->keep_size;
-
-    switch(tcl_frame_tail->filter_type) {
-      case TCL_FILTER_TYPE_KEEP_NONE:
-        tcl_frame_tail->truncated_size++;
-        break;
-      case TCL_FILTER_TYPE_KEEP_BEGIN:
-        if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
-            tcl_frame_tail->truncated_size++;
-        } else if (size >= keep_size) {
-            tcl_frame_tail->truncated_size++;
-        } else {
-            tcl_record__filter_type_all(iseq, pc);
-        }
-        break;
-      case TCL_FILTER_TYPE_KEEP_END:
-        if (keep_size == 0) { // TCL_FILTER_TYPE_KEEP_NONE と同じ
-            tcl_frame_tail->truncated_size++;
-        } else if (size >= keep_size) {
-            if (size == 1) { // 1個のときは付け替えが例外的な処理になる
-                tcl_record__filter_type_end_size1(iseq, pc);
-            } else {
-                tcl_record__filter_type_end(iseq, pc);
-            }
-        } else {
-          tcl_record__filter_type_all(iseq, pc);
-        }
-        break;
-      case TCL_FILTER_TYPE_KEEP_BEGIN_AND_END:
-        if (keep_size == 0) {
-            tcl_frame_tail->truncated_size++;
-        } else if (size >= keep_size * 2) {
-            tcl_record__filter_type_begin_end(iseq, pc);
-        } else {
-          tcl_record__filter_type_all(iseq, pc);
-        }
-        break;
-      case TCL_FILTER_TYPE_KEEP_ALL:
-        tcl_record__filter_type_all(iseq, pc);
-        break;
-    }
-}
-
-void tcl_record__filter_type_all(const rb_iseq_t *iseq, VALUE *pc) {
-    int size = tcl_frame_tail->tailcall_methods_size;
 
     tcl_frame_tail->tailcall_methods_size += 1;
     tailcall_methods_size_sum += 1;
@@ -241,64 +194,15 @@ void tcl_record__filter_type_all(const rb_iseq_t *iseq, VALUE *pc) {
         tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
         tcl_frame_tail->tailcall_methods_tail = new_method_name;
     }
-}
 
-void tcl_record__filter_type_end_size1(const rb_iseq_t *iseq, VALUE *pc) {
-    free(tcl_frame_tail->tailcall_methods_head);
-
-    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
-    *new_method_name = (tcl_tailcall_method_t) {
-        iseq,
-        pc,
-        tcl_frame_tail->tailcall_methods_tail, // prev
-        NULL // next
-    };
-
-    tcl_frame_tail->tailcall_methods_head = new_method_name;
-    tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    tcl_frame_tail->truncated_size++;
-}
-
-void tcl_record__filter_type_end(const rb_iseq_t *iseq, VALUE *pc) {
-    // headを削除
-    tcl_frame_tail->tailcall_methods_head = tcl_frame_tail->tailcall_methods_head->next;
-    free(tcl_frame_tail->tailcall_methods_head->prev);
-    tcl_frame_tail->tailcall_methods_head->prev = NULL;
-
-    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
-    *new_method_name = (tcl_tailcall_method_t) {
-        iseq,
-        pc,
-        tcl_frame_tail->tailcall_methods_tail, // prev
-        NULL // next
-    };
-
-    tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
-    tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    tcl_frame_tail->truncated_size++;
-}
-
-void tcl_record__filter_type_begin_end(const rb_iseq_t *iseq, VALUE *pc) {
-    int keep_size = tcl_frame_tail->keep_size;
-
-    tcl_tailcall_method_t *new_method_name = malloc(sizeof(tcl_tailcall_method_t));
-    *new_method_name = (tcl_tailcall_method_t) {
-        iseq,
-        pc,
-        tcl_frame_tail->tailcall_methods_tail, // prev
-        NULL // next
-    };
-    tcl_frame_tail->tailcall_methods_tail->next = new_method_name;
-    tcl_frame_tail->tailcall_methods_tail = new_method_name;
-    // head+nを削除
-    tcl_tailcall_method_t *delete_method = tcl_frame_tail->tailcall_methods_head;
-    for (int i = 0; i < keep_size; i++) {
-        delete_method = delete_method->next;
+    int i = 0;
+    if (TCL_MAX <= tailcall_methods_size_sum) {
+        printf("Reach limit!!! please enter expression to indicate what logs to discard.\n");
+        tcl_print();
+        printf("> ");
+        scanf("%d", &i);
+        printf("i: %d\n", i);
     }
-    delete_method->prev->next = delete_method->next;
-    delete_method->next->prev = delete_method->prev;
-    free(delete_method);
-    tcl_frame_tail->truncated_size++;
 }
 
 void tcl_change_top(char *method_name) {
