@@ -1,4 +1,5 @@
 #include "tailcall.h"
+#include "vm_backtrace.h"
 
 #include "ruby/internal/config.h"
 
@@ -35,11 +36,23 @@ long tcl_log_size(void) { // FIXME: 「このフレーム以降のサイズ」�
     return tailcall_methods_size_sum;
 }
 
+char* calc_method_name(rb_iseq_t *iseq) {
+  return StringValuePtr(ISEQ_BODY(iseq)->location.label);
+}
+
 void tcl_print(void) {
     tcl_frame_t *f_tmp = tcl_frame_tail;
 
+    bool first_call = true;
     while (1) {
-        printf("        from %s\n", f_tmp->name);
+        printf(
+            "%s%s:%d:in `%s'%s\n",
+            first_call ? "" : "        from ",
+            RSTRING_PTR(rb_iseq_path(f_tmp->iseq)),
+            calc_lineno(f_tmp->iseq, f_tmp->pc),
+            f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "<cfunc>",
+            first_call ? " (calling)" : ""
+        );
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_tail;
         if (m_tmp != NULL) {
             while (1) {
@@ -47,25 +60,24 @@ void tcl_print(void) {
                     "        from %s:%d:in `%s' (tailcall)\n",
                     RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
                     calc_lineno(m_tmp->iseq, m_tmp->pc),
-                    StringValuePtr(ISEQ_BODY(m_tmp->iseq)->location.label)
+                    calc_method_name(m_tmp->iseq)
                 );
                 if (m_tmp->prev == NULL) { break; }
                 m_tmp = m_tmp->prev;
             }
         }
-        if (f_tmp->prev == NULL) { break; }
+        if (f_tmp->prev->prev == NULL) { break; }
         f_tmp = f_tmp->prev;
+        first_call = false;
     }
 }
 
-void tcl_push(char *method_name) {
-    char* prev_method_name = tcl_frame_tail // unless root
-                             ? tcl_frame_tail->name
-                             : "";
+void tcl_push(rb_iseq_t *iseq, VALUE *pc) {
     // allocate
     tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
     *new_frame = (tcl_frame_t) {
-        method_name, // name
+        iseq,
+        pc,
         NULL, // tailcall_methods_head
         NULL, // tailcall_methods_tail
         0, // tailcall_methods_size
@@ -100,7 +112,7 @@ void tcl_pop(void) {
     free(tail_frame);
 }
 
-void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
+void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
     int size = tcl_frame_tail->tailcall_methods_size;
 
     tcl_frame_tail->tailcall_methods_size += 1;
@@ -124,7 +136,7 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
 
     int i = 0;
     if (TCL_MAX <= tailcall_methods_size_sum) {
-        printf("Reach limit!!! please enter expression to indicate what logs to discard.\n");
+        printf("Reach limit!!! please enter expression to indicate what logs to discard.\n\n");
         tcl_print();
         printf("> ");
         scanf("%d", &i);
@@ -132,7 +144,8 @@ void tcl_record(const rb_iseq_t *iseq, VALUE *pc) {
     }
 }
 
-void tcl_change_top(char *method_name) {
-    tcl_frame_tail->name = method_name;
+void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc) {
+    tcl_frame_tail->iseq = iseq;
+    tcl_frame_tail->pc = pc;
 }
 

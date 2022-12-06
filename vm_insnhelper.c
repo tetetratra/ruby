@@ -404,8 +404,7 @@ vm_push_frame(rb_execution_context_t *ec,
               int local_size,
               int stack_max)
 {
-    char *method_name = iseq ? StringValuePtr(ISEQ_BODY(iseq)->location.label) : "<cfunc>";
-    tcl_push(method_name);
+    tcl_push(iseq, pc);
     /* tcl_print(); */
     VM_PUSH_FRAME_BODY;
 }
@@ -2700,6 +2699,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
     tcl_record(cfp->iseq, cfp->pc);
     vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
     /* tcl_print(); */
+    tcl_change_top(iseq, cfp->pc);
 
     cfp = ec->cfp;
 
@@ -2719,9 +2719,6 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
                   ISEQ_BODY(iseq)->iseq_encoded + opt_pc, sp,
                   ISEQ_BODY(iseq)->local_table_size - ISEQ_BODY(iseq)->param.size,
                   ISEQ_BODY(iseq)->stack_max);
-
-    char *method_name = iseq ? StringValuePtr(ISEQ_BODY(iseq)->location.label) : "<cfunc>";
-    tcl_change_top(method_name);
 
     cfp->sp = sp_orig;
 

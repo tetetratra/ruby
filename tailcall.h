@@ -11,7 +11,8 @@ typedef struct tcl_tailcall_method_struct {
 } tcl_tailcall_method_t;
 
 typedef struct tcl_frame_struct {
-    char *name;
+    rb_iseq_t *iseq;
+    VALUE *pc;
     tcl_tailcall_method_t *tailcall_methods_head;
     tcl_tailcall_method_t *tailcall_methods_tail;
     int tailcall_methods_size;
@@ -24,10 +25,10 @@ tcl_frame_t* get_tcl_frame_tail(void);
 long tcl_log_size(void);
 int tcl_truncated_size(void);
 void tcl_print(void);
-void tcl_push(char *method_name);
+void tcl_push(rb_iseq_t *iseq, VALUE *pc);
 void tcl_pop(void);
-void tcl_record(const rb_iseq_t *iseq, VALUE *pc);
-void tcl_change_top(char *method_name);
+void tcl_record(rb_iseq_t *iseq, VALUE *pc);
+void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc);
 
 #define TAILCALL_H
 #endif
