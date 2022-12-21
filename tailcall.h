@@ -4,8 +4,8 @@ typedef struct rb_iseq_struct rb_iseq_t;
 typedef unsigned long VALUE;
 
 typedef struct tcl_tailcall_method_struct {
-    rb_iseq_t *iseq;
-    VALUE *pc;
+    rb_iseq_t *iseq; // NULLなら...
+    VALUE *pc; // NULLなら...
     struct tcl_tailcall_method_struct *prev;
     struct tcl_tailcall_method_struct *next;
 } tcl_tailcall_method_t;

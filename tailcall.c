@@ -5,6 +5,9 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
 
 #include "vm_core.h"
 #include "method.h"
@@ -62,13 +65,20 @@ void tcl_print(void) {
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_tail;
         if (m_tmp != NULL) {
             while (1) {
-                printf(
-                    "        from %s:%d:in `%s' %s\n",
-                    RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
-                    calc_lineno(m_tmp->iseq, m_tmp->pc),
-                    calc_method_name(m_tmp->iseq),
-                    ESCAPE_SEQUENCES_GREEN"(tailcall)"ESCAPE_SEQUENCES_RESET
-                );
+                if (m_tmp->iseq) {
+                    printf(
+                            "        from %s:%d:in `%s' %s\n",
+                            RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
+                            calc_lineno(m_tmp->iseq, m_tmp->pc),
+                            calc_method_name(m_tmp->iseq),
+                            ESCAPE_SEQUENCES_GREEN"(tailcall)"ESCAPE_SEQUENCES_RESET
+                          );
+                } else { // ... の場合
+                    printf(
+                            "        from %s\n",
+                            ESCAPE_SEQUENCES_RED"(... truncated tailcalls ...)"ESCAPE_SEQUENCES_RESET
+                          );
+                }
                 if (m_tmp->prev == NULL) { break; }
                 m_tmp = m_tmp->prev;
             }
@@ -119,14 +129,151 @@ void tcl_pop(void) {
     free(tail_frame);
 }
 
+void tcl_arg(char* ret) { // retが戻り値
+    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+
+    while (1) {
+        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        if (m_tmp != NULL) {
+            while (1) {
+                strcat(ret, calc_method_name(m_tmp->iseq));
+                strcat(ret, " ");
+                if (m_tmp->next == NULL) { break; }
+                m_tmp = m_tmp->next;
+            }
+        }
+        strcat(ret, "\\"); // non-tailcallの印
+        strcat(ret, f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "cfunc");
+        strcat(ret, " ");
+
+        if (f_tmp->next == NULL) { break; }
+        f_tmp = f_tmp->next;
+    }
+    ret[strlen(ret) - 1] = '\0'; // trim last whitespace
+}
+
+void tcl_prompt(void) {
+    FILE *fp_arg;
+    char str_arg[1024];
+    FILE *fp_res;
+    char str_res[1024];
+
+    while (1) {
+        printf("pattern> ");
+        fgets(str_arg, sizeof(str_arg), stdin);
+
+        fp_arg = fopen("argument.txt", "w");
+        char arg[TCL_MAX * 100] = "";
+        tcl_arg(arg);
+        fprintf(fp_arg, "%ld\n%s\n%s", time(NULL), arg, str_arg);
+        fflush(fp_arg);
+        fclose(fp_arg);
+        fopen("result.txt", "w"); // clear contents
+
+        str_res[0] = '\0';
+        while (1) {
+            fp_res = fopen("result.txt", "r");
+            fgets(str_res, sizeof(str_res), fp_res);
+            if (str_res[0] != '\0') { break; }
+
+            sleep(1);
+            // printf("sleeping\n");
+            fclose(fp_res);
+        }
+        if (str_res[0] == '\n') {
+            if (TCL_MAX <= tailcall_methods_size_sum) {
+                printf("まだしきい値を超えています\n");
+            } else {
+                printf("処理を続行します\n");
+                return;
+            }
+        } else {
+            long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
+            tcl_overlimit(str_res[0], fp_res);
+            tcl_print();
+            printf("(%d tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
+            if (TCL_MAX <= tailcall_methods_size_sum) {
+                printf("まだまだしきい値を超えています\n");
+            } else {
+                printf("しきい値を下回りました. 破棄を終了するならenter\n");
+            }
+        }
+        fclose(fp_res); // while内でbreakした場合はfcloseを通らないので
+    }
+}
+
+void tcl_overlimit(char type, FILE* fp) {
+    char buf[64];
+
+    int index = 0;
+    int pos = -1;
+    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+
+    switch(type) {
+      case 'd': // 消すものを受け取る
+      case 'k':
+        if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
+        sscanf(buf, "%d", &pos);
+
+        while (1) {
+            tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+            if (m_tmp != NULL) {
+                while (1) {
+                    /* printf("index: %d, pos: %d\n", index, pos); */
+                    if (index == pos) {
+                        /* printf("match (deleted)\n"); */
+                        // delete tailcall_method
+                        if (m_tmp->next == NULL && m_tmp->prev == NULL) {
+                            f_tmp->tailcall_methods_head = NULL;
+                            f_tmp->tailcall_methods_tail = NULL;
+                        } else if (m_tmp->next == NULL) {
+                            m_tmp->prev->next = NULL;
+                            f_tmp->tailcall_methods_tail = m_tmp->prev;
+                        } else if (m_tmp->prev == NULL) {
+                            m_tmp->next->prev = NULL;
+                            f_tmp->tailcall_methods_head = m_tmp->next;
+                        } else {
+                            m_tmp->prev->next = m_tmp->next;
+                            m_tmp->next->prev = m_tmp->prev;
+                        }
+                        tailcall_methods_size_sum--;
+                        // TODO free
+                        if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
+                        sscanf(buf, "%d", &pos);
+                    }
+
+                    if (m_tmp->next == NULL) { break; }
+                    m_tmp = m_tmp->next;
+                    index++;
+                }
+            }
+
+            /* printf("index: %d, pos: %d\n", index, pos); */
+            if (index == pos) {
+                /* printf("match (not deleted)\n"); */
+                if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
+                sscanf(buf, "%d", &pos);
+            }
+
+            if (f_tmp->next == NULL) { break; }
+            f_tmp = f_tmp->next;
+            index++;
+        }
+        break;
+      case 't': // truncate
+        break;
+      default:
+        printf("bug\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+
 void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
-    int i = 0;
     if (TCL_MAX <= tailcall_methods_size_sum) {
-        printf("Reach limit!!! please enter expression to indicate what logs to discard.\n\n");
+        printf("log size limit reached. please enter pattern expression what logs to discard.\ncurrent backtrace:\n");
         tcl_print();
-        printf("> ");
-        scanf("%d", &i);
-        printf("i: %d\n", i);
+        tcl_prompt();
     }
 
     tcl_frame_tail->tailcall_methods_size += 1;

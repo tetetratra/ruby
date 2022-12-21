@@ -182,54 +182,35 @@ def filter(string, patterns)
   end
 end
 
-def run
-  if ARGV[0].empty?
-    STDERR.print 'buf (in parse_patern_lang.rb) (ARGV[0].empty?)'
-    exit
-  end
-  if ARGV[1].empty?
-    STDERR.print 'buf (in parse_patern_lang.rb) (ARGV[1].empty?)'
-    exit
-  end
-  STDERR.print 'ARGV[0]: '
-  STDERR.puts ARGV[0].inspect
-  string = ARGV[0].chomp.split
-  # STDERR.puts string.inspect
-  STDERR.print 'ARGV[1]: '
-  STDERR.puts ARGV[1].inspect
-  ARGV[1].chomp.split('/') => [_discard_empty, *patterns, cmd]
-  # STDERR.puts patterns.inspect
-  # STDERR.puts cmd.inspect
+def run(string_raw, pattern_exp)
+  string = string_raw.split
+  pattern_exp.split('/') => [_discard_empty, *patterns, cmd]
 
   filtered_ranges = filter(string, patterns)
 
+  s = "#{cmd}\n"
   case cmd
   when 'd'
-    s = filtered_ranges.flat_map do |filtered_range|
+    s += filtered_ranges.flat_map do |filtered_range|
       [*filtered_range[:range]]
     end.join("\n")
-    puts cmd
-    s = "0" if s.empty?
-    puts s
+    p s
   when 'k'
     all = [*0..(string.size - 1)]
     filtered_ranges.each do |filtered_range|
       all -= [*filtered_range[:range]]
     end
-    s = all.to_s
-    puts cmd
-    s = "0" if s.empty?
-    puts s
+    s += all.to_s
+    s
   when 't'
-    s = filtered_ranges.map { |filtered_range|
+    s += filtered_ranges.map { |filtered_range|
       format('%d %d', filtered_range[:range].begin, filtered_range[:range].end)
     }
-    puts cmd
-    print s
+    s
   else
     STDERR.puts 'bug (in parse_patern_lang.rb)'
     STDERR.puts cmd.inspect
   end
 end
 
-run
+
