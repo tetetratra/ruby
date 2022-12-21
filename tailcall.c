@@ -182,20 +182,22 @@ void tcl_prompt(void) {
         }
         if (str_res[0] == '\n') {
             if (TCL_MAX <= tailcall_methods_size_sum) {
-                printf("まだしきい値を超えています\n");
+                printf("still over the limit. please enter pattern expression.\n");
             } else {
-                printf("処理を続行します\n");
+                printf("resume program.\n");
                 return;
             }
         } else {
             long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
             tcl_overlimit(str_res[0], fp_res);
+            printf("\ncurrent backtrace:\n");
             tcl_print();
-            printf("(%d tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
+            printf("\n");
+            printf("(%ld tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
             if (TCL_MAX <= tailcall_methods_size_sum) {
-                printf("まだまだしきい値を超えています\n");
+                printf("still over the limit. please enter pattern expression.\n");
             } else {
-                printf("しきい値を下回りました. 破棄を終了するならenter\n");
+                printf("below the limit. press ENTER to complete.\n");
             }
         }
         fclose(fp_res); // while内でbreakした場合はfcloseを通らないので
@@ -271,9 +273,11 @@ void tcl_overlimit(char type, FILE* fp) {
 
 void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
     if (TCL_MAX <= tailcall_methods_size_sum) {
-        printf("log size limit reached. please enter pattern expression what logs to discard.\ncurrent backtrace:\n");
+        printf("log size limit reached. please enter pattern expression what logs to discard.\n\ncurrent backtrace:\n");
         tcl_print();
+        printf("\n");
         tcl_prompt();
+        printf("\n");
     }
 
     tcl_frame_tail->tailcall_methods_size += 1;

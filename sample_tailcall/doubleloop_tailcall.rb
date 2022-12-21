@@ -2,7 +2,7 @@ def outer_loop(n)
   if n == 0
     n
   else
-    inner_loop(n, 3)
+    inner_loop(n, 5)
   end
 end
 

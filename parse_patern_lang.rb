@@ -6,21 +6,21 @@ Plus = Struct.new(:body) do
   end
 end
 
-PlusDel = Struct.new(:body) do
-  def inspect
-    "#{body.inspect}+/d"
-  end
-end
-
 Mul = Struct.new(:body) do
   def inspect
     "#{body.inspect}*"
   end
 end
 
-MulDel = Struct.new(:body) do
+Hat = Struct.new(:_) do
   def inspect
-    "#{body.inspect}*/d"
+    '^'
+  end
+end
+
+Doller = Struct.new(:_) do
+  def inspect
+    '$'
   end
 end
 
@@ -30,7 +30,6 @@ class Range
   end
 end
 
-
 macros = {
   'REECNT' => '.{10}$',
   'BEGINNING' => '.{10}$',
@@ -38,7 +37,7 @@ macros = {
 }
 
 def parse(pattern_str)
-  parsed = pattern_str.scan(%r#\.|[A-Z]+|[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
+  parsed = pattern_str.scan(%r#\^|\$|\.|[A-Z]+|[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
@@ -48,12 +47,12 @@ def parse(pattern_str)
       pattern = i.zero? ? [pattern[(i+1)..]] : [*pattern[0..(i-1)], pattern[(i+1)..]]
     when '+'
       pattern << Plus.new(pattern.pop)
-    when '+/d'
-      pattern << PlusDel.new(pattern.pop)
     when '*'
       pattern << Mul.new(pattern.pop)
-    when '*/d'
-      pattern << MulDel.new(pattern.pop)
+    when '^'
+      pattern << Hat.new
+    when '$'
+      pattern << Doller.new
     else
       pattern << poped
     end
@@ -76,12 +75,6 @@ def compile(pattern)
         *compiled,
         "jump #{-compiled.size - 1}"
       ]
-    in PlusDel
-      [
-        "set_sp_from",
-        *compile_r.(Plus.new(pat.body)),
-        "set_sp_to"
-      ]
     in Mul
       compiled = compile_r.(pat.body)
       [
@@ -89,12 +82,10 @@ def compile(pattern)
         *compiled,
         "jump #{-compiled.size - 1}"
       ]
-    in MulDel
-      [
-        "set_sp_from",
-        *compile_r.(Mul.new(pat.body)),
-        "set_sp_to"
-      ]
+    in Hat
+      ['hat']
+    in Doller
+      ['doller']
     end
   end
   [*compile_r.(pattern), 'match']
@@ -125,6 +116,18 @@ def exec(codes, string, from = 0)
       else
         next vm[..-2]
       end
+    when /^hat/
+      if sp == 0
+        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from: sp_from }]
+      else
+        next vm[..-2]
+      end
+    when /^doller/
+      if sp == string.size
+        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from: sp_from }]
+      else
+        next vm[..-2]
+      end
     when /^split (-?\d+) (-?\d+)/
       j1 = $1.to_i
       j2 = $2.to_i
@@ -139,16 +142,6 @@ def exec(codes, string, from = 0)
       next [*vm[..-2], { sp: sp, pc: pc + j, sp_from: }]
     when /^match/
       break sp_from..(sp - 1)
-    when /^set_sp_from/
-      next [
-        *vm[..-2],
-        { sp: sp, pc: pc + 1, sp_from: sp }
-      ]
-    when /^set_sp_to/
-      next [
-        *vm[..-2],
-        { sp: sp, pc: pc + 1, sp_to: sp - 1 }
-      ]
     end
   end
 end
@@ -174,7 +167,9 @@ def filter(string, patterns)
   patterns.reduce([{ range: init_range, string: string }]) do |ss, filter|
     ss.flat_map do |s|
       pattern = parse(filter)
+      p pattern if $DEBUG
       bytecode = compile(pattern)
+      p bytecode if $DEBUG
       scan(bytecode, s[:string]).map do
         { range: _1[:range].shift(s[:range].begin), string: _1[:string] }
       end
@@ -194,23 +189,26 @@ def run(string_raw, pattern_exp)
     s += filtered_ranges.flat_map do |filtered_range|
       [*filtered_range[:range]]
     end.join("\n")
-    p s
+    s
   when 'k'
     all = [*0..(string.size - 1)]
     filtered_ranges.each do |filtered_range|
       all -= [*filtered_range[:range]]
     end
-    s += all.to_s
+    s += all.join("\n")
     s
   when 't'
     s += filtered_ranges.map { |filtered_range|
       format('%d %d', filtered_range[:range].begin, filtered_range[:range].end)
     }
     s
-  else
-    STDERR.puts 'bug (in parse_patern_lang.rb)'
-    STDERR.puts cmd.inspect
   end
+rescue => e
+  STDERR.puts e.inspect
+  ''
 end
 
-
+if $PROGRAM_NAME == __FILE__
+  $DEBUG = true
+  puts run(ARGV[0], ARGV[1])
+end

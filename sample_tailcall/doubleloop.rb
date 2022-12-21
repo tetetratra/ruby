@@ -5,7 +5,5 @@ RubyVM::InstructionSequence.compile(
   file_path
 ).eval
 
-outer_loop(3)
-# (outer_loop inner_loop*)+/d
-# (outer_loop inner_loop*/c )+
+outer_loop(5)
 
