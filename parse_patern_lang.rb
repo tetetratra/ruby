@@ -36,12 +36,6 @@ class Range
   end
 end
 
-MACROS = {
-  'REECNT' => '.{10}$',
-  'BEGINNING' => '.{10}$',
-  '~' => '.*?'
-}
-
 Call = Struct.new(:name) do
   def inspect
     "@#{name.inspect}"
@@ -130,8 +124,22 @@ def filter(init_string, patterns)
   end
 end
 
+MACRO = {
+  'RECENT' => -> _s {
+    [Times.new('.', 3), Doller.new]
+  },
+  'BEGINNING' => -> _s {
+    [Hat.new, Times.new('.', 3)]
+  },
+  '[a-z_<>]+~[a-z_<>]+' => -> s {
+    from, to = s.split('~')
+    ["\\#{from}", Mul.new('.'), "\\#{to}"]
+  }
+}
+
 def parse(pattern_str)
-  parsed = pattern_str.scan(%r#{\d+}|\^|\$|\.|[A-Z]+|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
+  macro_regex = MACRO.keys.join('|')
+  parsed = pattern_str.scan(%r@#{macro_regex}|{\d+}|\^|\$|\.|[A-Z]+|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
@@ -150,7 +158,11 @@ def parse(pattern_str)
     when '$'
       pattern << Doller.new
     else
-      pattern << poped
+      if matched_macro = MACRO.find { |(regex, _replace)| Regexp.new(regex).match?(poped) }
+        pattern.concat matched_macro[1].call(poped)
+      else
+        pattern << poped
+      end
     end
   end
   pattern
