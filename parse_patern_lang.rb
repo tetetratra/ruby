@@ -58,26 +58,30 @@ def run(string_raw, pattern_exp)
   end
   p string if $debug
   pattern_exp.split('/') => [_discard_empty, *patterns, cmd]
-
-  range_string_arr = filter(string, patterns)
+  filtered = filter(string, patterns)
 
   s = "#{cmd}\n"
   case cmd
   when 'd'
-    s += range_string_arr.map do |(r, _s)|
-      r.to_a.join("\n")
+    s += filtered.map do |(indexes, _str, skips)|
+      if $debug
+        p _str, skips
+      end
+      (indexes - skips).join("\n")
     end.join("\n")
     s
   when 'k'
     all = (0..(string.size - 1)).to_a
-    range_string_arr.each do |(r, _s)|
-      all -= r.to_a
+    filtered.each do |(indexes, _str, skips)|
+      all -= indexes
+      all += skips # kのときの\は「マッチするが残す」にする
     end
     s += all.join("\n")
     s
   when 't'
-    s += range_string_arr.map do |(r, s)|
-      r.to_a.zip(s).chunk { |(i, c)| Tailcall === c }
+    s += filtered.map do |(indexes, str, skips)|
+      indexes.zip(str).reject { |(i, _)| skips.include?(i) }
+        .chunk { |(_i, call)| Tailcall === call }
         .select(&:first) # Callは取り除く
         .map(&:last)
         .map { _1.map(&:first) }
@@ -91,22 +95,30 @@ rescue => e
 end
 
 def filter(init_string, patterns)
-  init_range = 0..(init_string.size - 1)
-  patterns.reduce([[init_range, init_string]]) do |range_string_arr, pattern_code|
-    range_string_arr.flat_map do |(range, string)|
+  init_indexes = (0..(init_string.size - 1)).to_a
+
+  patterns.reduce([[init_indexes, init_string, []]]) do |memo, pattern_code|
+    memo.flat_map do |(indexes, string, skips)|
       pattern_ast = parse(pattern_code)
       p pattern_ast if $debug
+
       pattern_bytecode = compile(pattern_ast)
       p pattern_bytecode if $debug
-      scan(pattern_bytecode, string).map do |(range_result, string_result)|
-        [range_result.shift(range.begin), string_result]
+
+      scan(pattern_bytecode, string).map do |last_vm|
+        range = last_vm[:sp_from]..last_vm[:sp]
+        [
+          range.map { |i| i + init_indexes.first },
+          string[range],
+          last_vm[:skips]
+        ]
       end
     end
   end
 end
 
 def parse(pattern_str)
-  parsed = pattern_str.scan(%r#\^|\$|\.|[A-Z]+|[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
+  parsed = pattern_str.scan(%r#\^|\$|\.|[A-Z]+|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
@@ -163,54 +175,63 @@ end
 def scan(code, string)
   from = 0
   Enumerator.produce do
-    range = exec(code, string, from)
-    raise StopIteration if range.nil?
+    last_vm = exec(code, string, from)
+    raise StopIteration if last_vm.nil?
 
+    range = last_vm[:sp_from]..last_vm[:sp]
     if range.begin > range.end
-      from = range.begin + 1
+      from = last_vm[:sp_from] + 1
+      STDERR.puts 'maybe bug'
       nil
     else
-      from = range.end + 1
-      [range, string[range]]
+      from = last_vm[:sp] + 1
+      last_vm
     end
   end.to_a.compact
 end
 
 def exec(codes, string, from = 0)
   # sp: 0,1,2... から始めることで、前方部分一致をサポート
-  init_vm = (from..(string.size - 1)).map { |i| { sp: i, pc: 0, sp_from: i } }.reverse
+  init_vm = (from..(string.size - 1)).map { |i| { sp: i, pc: 0, sp_from: i, skips: [] } }.reverse
 
   (0..).reduce(init_vm) do |vm, _|
-    break if vm.empty?
+    break nil if vm.empty?
 
-    vm => [*, { sp:, pc:, sp_from: }] # sp: string pointer
+    vm => [*, { sp:, pc:, sp_from:, skips: }] # sp: string pointer
     code = codes[pc]
 
     if $debug
-      p vm, code
       puts
+      p vm, code
     end
 
     case code
     when /^char (.*)/
-      word = string[sp].name
-      next vm[..-2] if word.nil?
+      method = string[sp].name
+      p method if $debug
+      next vm[..-2] if method.nil?
 
       c = $1
-      if word == c || c == '.'
-        next [*vm[..-2], { sp: sp + 1, pc: pc + 1, sp_from: }]
+      skip = nil
+      if c.start_with?('\\')
+        c = c.sub('\\', '')
+        skip = sp
+      end
+
+      if method == c || c == '.'
+        next [*vm[..-2], { sp: sp + 1, pc: pc + 1, sp_from:, skips: [*skips, skip].compact }]
       else
         next vm[..-2]
       end
     when /^hat/
       if sp == 0
-        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from: sp_from }]
+        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from:, skips: }]
       else
         next vm[..-2]
       end
     when /^doller/
       if sp == string.size
-        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from: sp_from }]
+        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from:, skips: }]
       else
         next vm[..-2]
       end
@@ -219,15 +240,15 @@ def exec(codes, string, from = 0)
       j2 = $2.to_i
       next [
         *vm[..-2],
-        { sp: sp, pc: pc + 1,  sp_from: },
-        { sp: sp, pc: pc + j2, sp_from: },
-        { sp: sp, pc: pc + j1, sp_from: } # 最長一致のため、繰り返す方(j1)を先に試す
+        { sp: sp, pc: pc + 1,  sp_from:, skips: },
+        { sp: sp, pc: pc + j2, sp_from:, skips: },
+        { sp: sp, pc: pc + j1, sp_from:, skips: } # 最長一致のため、繰り返す方(j1)を先に試す
       ]
     when /^jump (-?\d+)/
       j = $1.to_i
-      next [*vm[..-2], { sp: sp, pc: pc + j, sp_from: }]
+      next [*vm[..-2], { sp: sp, pc: pc + j, sp_from:, skips: }]
     when /^match/
-      break sp_from..(sp - 1)
+      break { sp: sp - 1, pc:, sp_from:, skips: }
     end
   end
 end
