@@ -80,6 +80,7 @@ def run(string_raw, pattern_exp)
     s
   when 't'
     # 'a a a' '/a \a a/t' が `0 2` ではなく `0 0\n2 2` なるように頑張っている
+    p filtered
     s += filtered.map do |(indexes, str, skips)|
       indexes.zip(str)
         .chunk { |(i, _)| !skips.include?(i) } # skipを消す
@@ -94,7 +95,7 @@ def run(string_raw, pattern_exp)
           .join("\n")
       end.join("\n")
     end.join("\n")
-    s
+    s.gsub(/\n+/, "\n") # FIXME: 空のjoinで無駄に増えた分をに消す(応急処置)
   end
 rescue => e
   STDERR.puts e.full_message
@@ -139,7 +140,7 @@ MACRO = {
 
 def parse(pattern_str)
   macro_regex = MACRO.keys.join('|')
-  parsed = pattern_str.scan(%r@#{macro_regex}|{\d+}|\^|\$|\.|[A-Z]+|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
+  parsed = pattern_str.scan(%r@#{macro_regex}|{\d+}|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
