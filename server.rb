@@ -17,7 +17,7 @@ loop do
     last_time = time
 
     File.open("result.txt", 'w') do |fr|
-      if pattern.empty?
+      if pattern.nil? || pattern.empty?
         fr.puts # 改行文字だけを出力
       else
         result = run(string, pattern)
@@ -26,8 +26,7 @@ loop do
       end
     end
   end
-  sleep 1
-  # puts 'sleep'
+  sleep 0.1
 end
 
 
