@@ -12,6 +12,12 @@ Mul = Struct.new(:body) do
   end
 end
 
+Times = Struct.new(:body, :times) do
+  def inspect
+    "#{body.inspect}{#{times}}"
+  end
+end
+
 Hat = Struct.new(:_) do
   def inspect
     '^'
@@ -118,7 +124,7 @@ def filter(init_string, patterns)
 end
 
 def parse(pattern_str)
-  parsed = pattern_str.scan(%r#\^|\$|\.|[A-Z]+|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
+  parsed = pattern_str.scan(%r#{\d+}|\^|\$|\.|[A-Z]+|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
@@ -130,6 +136,8 @@ def parse(pattern_str)
       pattern << Plus.new(pattern.pop)
     when '*'
       pattern << Mul.new(pattern.pop)
+    when /{(\d+)}/
+      pattern << Times.new(pattern.pop, $1.to_i)
     when '^'
       pattern << Hat.new
     when '$'
@@ -163,6 +171,8 @@ def compile(pattern)
         *compiled,
         "jump #{-compiled.size - 1}"
       ]
+    in Times
+      compile_r.(pat.body) * pat.times
     in Hat
       ['hat']
     in Doller
