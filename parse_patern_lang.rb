@@ -85,13 +85,20 @@ def run(string_raw, pattern_exp)
     s += all.join("\n")
     s
   when 't'
+    # 'a a a' '/a \a a/t' が `0 2` ではなく `0 0\n2 2` なるように頑張っている
     s += filtered.map do |(indexes, str, skips)|
-      indexes.zip(str).reject { |(i, _)| skips.include?(i) }
-        .chunk { |(_i, call)| Tailcall === call }
-        .select(&:first) # Callは取り除く
-        .map(&:last)
-        .map { _1.map(&:first) }
-        .map { format('%d %d', _1[0], _1[-1]) }.join("\n")
+      indexes.zip(str)
+        .chunk { |(i, _)| !skips.include?(i) } # skipを消す
+        .select(&:first).map(&:last)
+        .map do |split_by_skip|
+
+        split_by_skip
+          .chunk { |(_i, call)| Tailcall === call } # Tailcallを消す
+          .select(&:first).map(&:last)
+          .map { _1.map(&:first) } # indexのみになるように整形
+          .map { format('%d %d', _1[0], _1[-1]) }
+          .join("\n")
+      end.join("\n")
     end.join("\n")
     s
   end
@@ -217,7 +224,7 @@ def exec(codes, string, from = 0)
 
     case code
     when /^char (.*)/
-      method = string[sp].name
+      method = string[sp]&.name
       p method if $debug
       next vm[..-2] if method.nil?
 
