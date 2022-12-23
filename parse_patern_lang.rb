@@ -30,11 +30,80 @@ class Range
   end
 end
 
-macros = {
+MACROS = {
   'REECNT' => '.{10}$',
   'BEGINNING' => '.{10}$',
   '~' => '.*?'
 }
+
+Call = Struct.new(:name) do
+  def inspect
+    "@#{name.inspect}"
+  end
+end
+
+Tailcall = Struct.new(:name) do
+  def inspect
+    name.inspect
+  end
+end
+
+def run(string_raw, pattern_exp)
+  string = string_raw.split.map do |s|
+    if s.start_with?('@')
+      Call.new(s.sub('@', ''))
+    else
+      Tailcall.new(s)
+    end
+  end
+  p string if $debug
+  pattern_exp.split('/') => [_discard_empty, *patterns, cmd]
+
+  range_string_arr = filter(string, patterns)
+
+  s = "#{cmd}\n"
+  case cmd
+  when 'd'
+    s += range_string_arr.map do |(r, _s)|
+      r.to_a.join("\n")
+    end.join("\n")
+    s
+  when 'k'
+    all = (0..(string.size - 1)).to_a
+    range_string_arr.each do |(r, _s)|
+      all -= r.to_a
+    end
+    s += all.join("\n")
+    s
+  when 't'
+    s += range_string_arr.map do |(r, s)|
+      r.to_a.zip(s).chunk { |(i, c)| Tailcall === c }
+        .select(&:first) # Callは取り除く
+        .map(&:last)
+        .map { _1.map(&:first) }
+        .map { format('%d %d', _1[0], _1[-1]) }.join("\n")
+    end.join("\n")
+    s
+  end
+rescue => e
+  STDERR.puts e.full_message
+  ''
+end
+
+def filter(init_string, patterns)
+  init_range = 0..(init_string.size - 1)
+  patterns.reduce([[init_range, init_string]]) do |range_string_arr, pattern_code|
+    range_string_arr.flat_map do |(range, string)|
+      pattern_ast = parse(pattern_code)
+      p pattern_ast if $debug
+      pattern_bytecode = compile(pattern_ast)
+      p pattern_bytecode if $debug
+      scan(pattern_bytecode, string).map do |(range_result, string_result)|
+        [range_result.shift(range.begin), string_result]
+      end
+    end
+  end
+end
 
 def parse(pattern_str)
   parsed = pattern_str.scan(%r#\^|\$|\.|[A-Z]+|[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~#)
@@ -91,9 +160,25 @@ def compile(pattern)
   [*compile_r.(pattern), 'match']
 end
 
+def scan(code, string)
+  from = 0
+  Enumerator.produce do
+    range = exec(code, string, from)
+    raise StopIteration if range.nil?
+
+    if range.begin > range.end
+      from = range.begin + 1
+      nil
+    else
+      from = range.end + 1
+      [range, string[range]]
+    end
+  end.to_a.compact
+end
+
 def exec(codes, string, from = 0)
   # sp: 0,1,2... から始めることで、前方部分一致をサポート
-  init_vm = (from..(string.size-1)).map { |i| { sp: i, pc: 0, sp_from: i } }.reverse
+  init_vm = (from..(string.size - 1)).map { |i| { sp: i, pc: 0, sp_from: i } }.reverse
 
   (0..).reduce(init_vm) do |vm, _|
     break if vm.empty?
@@ -102,12 +187,13 @@ def exec(codes, string, from = 0)
     code = codes[pc]
 
     if $debug
-      p(vm, code) && sleep(1) && puts
+      p vm, code
+      puts
     end
 
     case code
     when /^char (.*)/
-      word = string[sp]
+      word = string[sp].name
       next vm[..-2] if word.nil?
 
       c = $1
@@ -146,69 +232,7 @@ def exec(codes, string, from = 0)
   end
 end
 
-def scan(code, string)
-  from = 0
-  Enumerator.produce do
-    range = exec(code, string, from)
-    raise StopIteration if range.nil?
-
-    if range.begin > range.end
-      from = range.begin + 1
-      nil
-    else
-      from = range.end + 1
-      { range: range, string: string[range] }
-    end
-  end.to_a.compact
-end
-
-def filter(string, patterns)
-  init_range = 0..(string.size - 1)
-  patterns.reduce([{ range: init_range, string: string }]) do |ss, filter|
-    ss.flat_map do |s|
-      pattern = parse(filter)
-      p pattern if $DEBUG
-      bytecode = compile(pattern)
-      p bytecode if $DEBUG
-      scan(bytecode, s[:string]).map do
-        { range: _1[:range].shift(s[:range].begin), string: _1[:string] }
-      end
-    end
-  end
-end
-
-def run(string_raw, pattern_exp)
-  string = string_raw.split
-  pattern_exp.split('/') => [_discard_empty, *patterns, cmd]
-
-  filtered_ranges = filter(string, patterns)
-
-  s = "#{cmd}\n"
-  case cmd
-  when 'd'
-    s += filtered_ranges.flat_map do |filtered_range|
-      [*filtered_range[:range]]
-    end.join("\n")
-    s
-  when 'k'
-    all = [*0..(string.size - 1)]
-    filtered_ranges.each do |filtered_range|
-      all -= [*filtered_range[:range]]
-    end
-    s += all.join("\n")
-    s
-  when 't'
-    s += filtered_ranges.map { |filtered_range|
-      format('%d %d', filtered_range[:range].begin, filtered_range[:range].end)
-    }
-    s
-  end
-rescue => e
-  STDERR.puts e.inspect
-  ''
-end
-
 if $PROGRAM_NAME == __FILE__
-  $DEBUG = true
+  $debug = true
   puts run(ARGV[0], ARGV[1])
 end

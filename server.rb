@@ -1,5 +1,5 @@
 require_relative 'parse_patern_lang.rb'
-# $DEBUG = true
+# $debug = true
 
 last_time = nil
 File.open("result.txt", 'w') {}
@@ -11,8 +11,8 @@ loop do
     string  = fa.gets&.chomp
     pattern = fa.gets&.chomp
     next if last_time == time
-    p string if $DEBUG
-    p pattern if $DEBUG
+    p string if $debug
+    p pattern if $debug
 
     last_time = time
 
@@ -21,7 +21,7 @@ loop do
         fr.puts # 改行文字だけを出力
       else
         result = run(string, pattern)
-        p result if $DEBUG
+        p result if $debug
         fr.puts result
       end
     end

@@ -142,7 +142,7 @@ void tcl_arg(char* ret) { // retが戻り値
                 m_tmp = m_tmp->next;
             }
         }
-        strcat(ret, "\\"); // non-tailcallの印
+        strcat(ret, "@"); // non-tailcallの印
         strcat(ret, f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "cfunc");
         strcat(ret, " ");
 
