@@ -1,5 +1,3 @@
-$debug = false
-
 Plus = Struct.new(:body) do
   def inspect
     "#{body.inspect}+"
@@ -100,6 +98,7 @@ def run(string_raw, pattern_exp)
 rescue => e
   STDERR.puts e.full_message
   ''
+  "d\n"
 end
 
 def filter(init_string, patterns)

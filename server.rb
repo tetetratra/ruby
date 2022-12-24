@@ -1,5 +1,5 @@
 require_relative 'parse_patern_lang.rb'
-# $debug = true
+$debug = true
 
 last_time = nil
 File.open("result.txt", 'w') {}
@@ -26,7 +26,7 @@ loop do
       end
     end
   end
-  sleep 0.1
+  sleep 0.2
 end
 
 
