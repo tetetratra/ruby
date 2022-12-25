@@ -55,7 +55,7 @@ def run(string_raw, pattern_exp)
     end
   end
   p string if $debug
-  pattern_exp.split('/') => [_discard_empty, *patterns, command]
+  _discard_empty, *patterns, command = pattern_exp.split('/')
   filtered = filter(string, patterns)
 
   s = "#{command[0]}#{command[1] || 's'}\n"
@@ -88,8 +88,8 @@ def run(string_raw, pattern_exp)
         split_by_skip
           .chunk { |(_i, call)| Tailcall === call } # Tailcallを消す
           .select(&:first).map(&:last)
-          .map { _1.map(&:first) } # indexのみになるように整形
-          .map { format('%d %d', _1[0], _1[-1]) }
+          .map { |e| e.map(&:first) } # indexのみになるように整形
+          .map { |e| format('%d %d', e[0], e[-1]) }
           .join("\n")
       end.join("\n")
     end.join("\n")
@@ -146,7 +146,7 @@ def parse(pattern_str)
     case poped
     when ')'
       i = pattern.rindex('(')
-      pattern = i.zero? ? [pattern[(i+1)..]] : [*pattern[0..(i-1)], pattern[(i+1)..]]
+      pattern = i.zero? ? [pattern[(i+1)..nil]] : [*pattern[0..(i-1)], pattern[(i+1)..nil]]
     when '+'
       pattern << Plus.new(pattern.pop)
     when '*'
@@ -171,11 +171,11 @@ end
 def compile(pattern)
   compile_r = ->(pat) do
     case pat
-    in String
+    when String
       ["char #{pat}"]
-    in Array
+    when Array
       pat.map { |p| compile_r.(p) }.flatten(1)
-    in Plus
+    when Plus
       compiled = compile_r.(pat.body)
       [
         *compiled,
@@ -183,18 +183,18 @@ def compile(pattern)
         *compiled,
         "jump #{-compiled.size - 1}"
       ]
-    in Mul
+    when Mul
       compiled = compile_r.(pat.body)
       [
         "split 1 #{compiled.size + 2}",
         *compiled,
         "jump #{-compiled.size - 1}"
       ]
-    in Times
+    when Times
       compile_r.(pat.body) * pat.times
-    in Hat
+    when Hat
       ['hat']
-    in Doller
+    when Doller
       ['doller']
     end
   end
@@ -203,30 +203,35 @@ end
 
 def scan(code, string)
   from = 0
-  Enumerator.produce do
+  arr = []
+  loop do
     last_vm = exec(code, string, from)
-    raise StopIteration if last_vm.nil?
+    break if last_vm.nil?
 
     range = last_vm[:sp_from]..last_vm[:sp]
-    if range.begin > range.end
-      from = last_vm[:sp_from] + 1
-      STDERR.puts 'maybe bug'
-      nil
-    else
-      from = last_vm[:sp] + 1
-      last_vm
-    end
-  end.to_a.compact
+    arr << if range.begin > range.end
+             from = last_vm[:sp_from] + 1
+             STDERR.puts 'maybe bug'
+             nil
+           else
+             from = last_vm[:sp] + 1
+             last_vm
+           end
+  end
+  arr.compact
 end
 
 def exec(codes, string, from = 0)
   # sp: 0,1,2... から始めることで、前方部分一致をサポート
   init_vm = (from..(string.size - 1)).map { |i| { sp: i, pc: 0, sp_from: i, skips: [] } }.reverse
 
-  (0..).reduce(init_vm) do |vm, _|
+  loop.reduce(init_vm) do |vm, _|
     break nil if vm.empty?
 
-    vm => [*, { sp:, pc:, sp_from:, skips: }] # sp: string pointer
+    sp = vm.last[:sp] # sp: string pointer
+    pc = vm.last[:pc]
+    sp_from = vm.last[:sp_from]
+    skips = vm.last[:skips]
     code = codes[pc]
 
     if $debug
@@ -238,7 +243,7 @@ def exec(codes, string, from = 0)
     when /^char (.*)/
       method = string[sp]&.name
       p method if $debug
-      next vm[..-2] if method.nil?
+      next vm[0..-2] if method.nil?
 
       c = $1
       skip = nil
@@ -248,36 +253,36 @@ def exec(codes, string, from = 0)
       end
 
       if method == c || c == '.'
-        next [*vm[..-2], { sp: sp + 1, pc: pc + 1, sp_from:, skips: [*skips, skip].compact }]
+        next [*vm[0..-2], { sp: sp + 1, pc: pc + 1, sp_from: sp_from, skips: [*skips, skip].compact }]
       else
-        next vm[..-2]
+        next vm[0..-2]
       end
     when /^hat/
       if sp == 0
-        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from:, skips: }]
+        next [*vm[0..-2], { sp: sp, pc: pc + 1, sp_from: sp_from, skips: skips}]
       else
-        next vm[..-2]
+        next vm[0..-2]
       end
     when /^doller/
       if sp == string.size
-        next [*vm[..-2], { sp: sp, pc: pc + 1, sp_from:, skips: }]
+        next [*vm[0..-2], { sp: sp, pc: pc + 1, sp_from: sp_from, skips: skips }]
       else
-        next vm[..-2]
+        next vm[0..-2]
       end
     when /^split (-?\d+) (-?\d+)/
       j1 = $1.to_i
       j2 = $2.to_i
       next [
-        *vm[..-2],
-        { sp: sp, pc: pc + 1,  sp_from:, skips: },
-        { sp: sp, pc: pc + j2, sp_from:, skips: },
-        { sp: sp, pc: pc + j1, sp_from:, skips: } # 最長一致のため、繰り返す方(j1)を先に試す
+        *vm[0..-2],
+        { sp: sp, pc: pc + 1,  sp_from: sp_from, skips: skips },
+        { sp: sp, pc: pc + j2, sp_from: sp_from, skips: skips },
+        { sp: sp, pc: pc + j1, sp_from: sp_from, skips: skips } # 最長一致のため、繰り返す方(j1)を先に試す
       ]
     when /^jump (-?\d+)/
       j = $1.to_i
-      next [*vm[..-2], { sp: sp, pc: pc + j, sp_from:, skips: }]
+      next [*vm[0..-2], { sp: sp, pc: pc + j, sp_from: sp_from, skips: skips }]
     when /^match/
-      break { sp: sp - 1, pc:, sp_from:, skips: }
+      break { sp: sp - 1, pc: pc, sp_from: sp_from, skips: skips }
     end
   end
 end
