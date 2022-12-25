@@ -38,8 +38,12 @@ VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
 
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
-tcl_frame_t* get_tcl_frame_tail(void) { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
 long tailcall_methods_size_sum = 0;
+# define SAVE_MAX 100
+char *saved_commands[SAVE_MAX];
+int saved_commands_size = 0;
+
+tcl_frame_t* get_tcl_frame_tail(void) { return tcl_frame_tail; } // FIXME: 普通にグローバル変数にしたい
 
 long tcl_log_size(void) { // FIXME: 「このフレーム以降のサイズ」を返せるようにする
     return tailcall_methods_size_sum;
@@ -77,7 +81,7 @@ void tcl_print(void) {
                     printf(
                             "        from "
                             ESCAPE_SEQUENCES_RED
-                            "... %d tailcalls truncated by `%s`..."
+                            "(... %d tailcalls truncated by `%s`...)"
                             ESCAPE_SEQUENCES_RESET"\n",
                             m_tmp->truncated_count,
                             m_tmp->truncated_by
@@ -174,7 +178,6 @@ void tcl_prompt(void) {
         fprintf(fp_arg, "%ld\n%s\n%s", time(NULL), arg, str_arg);
         fflush(fp_arg);
         fclose(fp_arg);
-        fopen("result.txt", "w"); // clear contents
 
         str_res[0] = '\0';
         while (1) {
@@ -185,11 +188,12 @@ void tcl_prompt(void) {
             usleep(0.2 * 1000000);
             fclose(fp_res);
         }
+        fclose(fopen("result.txt", "w")); // clear contents
+
         if (str_res[0] == '\n') {
             if (TCL_MAX <= tailcall_methods_size_sum) {
                 printf("still over the limit. please enter pattern expression.\n");
             } else {
-                printf("resume program.\n");
                 return;
             }
         } else {
@@ -199,30 +203,43 @@ void tcl_prompt(void) {
               case 'd': // 消すものを受け取る
               case 'k':
                 tcl_delete(fp_res);
-                printf("\n");
                 break;
               case 't':
                 tcl_truncate(fp_res, str_arg);
-                printf("\n");
                 break;
               default:
                 printf("bug\n");
                 exit(EXIT_FAILURE);
             }
+            printf("backtrace updated.\n\n");
             printf("current backtrace:\n");
             tcl_print();
             if (str_res[0] == 'k' || str_res[0] == 'd') {
                 printf("(%ld tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
             }
             printf("\n");
+
+            if (str_res[1] == 's') {
+                char *save_command = malloc(1024);
+                strcpy(save_command, str_arg);
+                save_command[strlen(save_command) - 1] = '\0'; // chomp
+                saved_commands[saved_commands_size] = save_command;
+                saved_commands_size++;
+                printf("command `"ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"` saved.\n", save_command);
+                printf("saved commands:\n", save_command);
+                print_saved_commands();
+                printf("\n");
+            }
+
             if (TCL_MAX <= tailcall_methods_size_sum) {
                 printf("still over the limit. please enter pattern expression.\n");
             } else {
-                printf("below the limit. press ENTER to complete.\n");
+                printf("below the limit. press ENTER to resume program.\n");
             }
         }
         fclose(fp_res); // while内でbreakした場合はfcloseを通らないので
     }
+    printf("\n");
 }
 
 void tcl_delete(FILE* fp) {
@@ -366,12 +383,14 @@ void tcl_truncate(FILE* fp, char* truncated_by_arg) {
 }
 
 void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
+    if (TCL_MAX <= tailcall_methods_size_sum && saved_commands_size > 0) {
+        tcl_apply_saved();
+    }
     if (TCL_MAX <= tailcall_methods_size_sum) {
         printf("log size limit reached. please enter pattern expression what logs to discard.\n\ncurrent backtrace:\n");
         tcl_print();
         printf("\n");
         tcl_prompt();
-        printf("\n");
     }
 
     tcl_frame_tail->tailcall_methods_size += 1;
@@ -401,3 +420,56 @@ void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc) {
     tcl_frame_tail->pc = pc;
 }
 
+void print_saved_commands(void) {
+    for (int i = 0; i < saved_commands_size; i++) {
+        printf("        %d: "ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"\n", i + 1, saved_commands[i]);
+    }
+}
+
+void tcl_apply_saved(void) {
+    FILE *fp_arg;
+    char *str_arg;
+    FILE *fp_res;
+    char str_res[1024];
+
+    for (int i = 0; i < saved_commands_size; i++) {
+        str_arg = saved_commands[i];
+
+        usleep(1.0 * 1000000);
+        fp_arg = fopen("argument.txt", "w");
+        char arg[TCL_MAX * 100] = "";
+        tcl_arg(arg);
+        fprintf(fp_arg, "%ld\n%s\n%s\n", time(NULL), arg, str_arg);
+        fflush(fp_arg);
+        fclose(fp_arg);
+
+        str_res[0] = '\0';
+        while (1) {
+            fp_res = fopen("result.txt", "r");
+            fgets(str_res, sizeof(str_res), fp_res);
+            if (str_res[0] != '\0') { break; }
+
+            usleep(1.0 * 1000000);
+            fclose(fp_res);
+        }
+        fclose(fopen("result.txt", "w")); // clear contents
+
+        if (str_res[0] == '\n') {
+            printf("bug\n");
+            exit(EXIT_FAILURE);
+        }
+        switch(str_res[0]) {
+          case 'd': // 消すものを受け取る
+          case 'k':
+            tcl_delete(fp_res);
+            break;
+          case 't':
+            tcl_truncate(fp_res, str_arg);
+            break;
+          default:
+            printf("bug\n");
+            exit(EXIT_FAILURE);
+        }
+        fclose(fp_res); // while内でbreakした場合はfcloseを通らないので
+    }
+}

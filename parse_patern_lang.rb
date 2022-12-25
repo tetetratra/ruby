@@ -55,11 +55,11 @@ def run(string_raw, pattern_exp)
     end
   end
   p string if $debug
-  pattern_exp.split('/') => [_discard_empty, *patterns, cmd]
+  pattern_exp.split('/') => [_discard_empty, *patterns, command]
   filtered = filter(string, patterns)
 
-  s = "#{cmd}\n"
-  case cmd
+  s = "#{command[0]}#{command[1] || 's'}\n"
+  case command[0] # 1文字目
   when 'd'
     s += filtered.map do |(indexes, _str, skips)|
       if $debug
