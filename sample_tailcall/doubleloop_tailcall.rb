@@ -1,16 +1,16 @@
-def outer_loop(n)
+def o(n)
   if n == 0
     n
   else
-    inner_loop(n, 5)
+    i(n, 5)
   end
 end
 
-def inner_loop(n, m)
+def i(n, m)
   if m.zero?
-    outer_loop(n-1)
+    o(n-1)
   else
-    inner_loop(n, m - 1)
+    i(n, m - 1)
   end
 end
 

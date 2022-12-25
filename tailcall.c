@@ -8,6 +8,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "vm_core.h"
 #include "method.h"
@@ -162,100 +166,155 @@ void tcl_arg(char* ret) { // retが戻り値
     ret[strlen(ret) - 1] = '\0'; // trim last whitespace
 }
 
+void connect_patern_lang_server(char *send_str,
+         char *type_addr, char *save_addr, int *indexes_size_addr,
+         int* from_indexes, int* to_indexes) {
+
+    int sock; // ソケットディスクリプタ
+    sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    // サーバに接続
+    struct sockaddr_in servAddr;
+    memset(&servAddr, 0, sizeof(servAddr));
+    servAddr.sin_family = AF_INET;
+    servAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    servAddr.sin_port = htons(12345);
+    connect(sock, (struct sockaddr*) &servAddr, sizeof(servAddr));
+
+    // 送信
+    /* printf("send_str: `%s`\n", send_str); */
+    send(sock, send_str, strlen(send_str), 0);
+
+    // 受信
+    char buf[TCL_MAX * 100];
+    memset(&buf, 0, sizeof(buf));
+    recv(sock, buf, sizeof(buf), 0);
+    /* printf("buf: `%s`\n", buf); */
+
+    // パース 1行目
+    sscanf(buf, "%c %c %d", type_addr, save_addr, indexes_size_addr);
+    char type = *type_addr;
+    char save = *save_addr;
+    int indexes_size = *indexes_size_addr;
+    /* printf("%c %c %d\n", type, save, indexes_size); */
+
+    // パース 2行目以降
+    char* pos;
+    if ((pos = strchr(buf, '\n')) != NULL) {
+        strcpy(buf, pos + 1);
+    }
+    /* printf("buf: `%s`", buf); */
+    int index_from;
+    int index_to;
+    for (int i = 0; i < indexes_size; i++) {
+        switch(type) {
+          case 'd':
+          case 'k':
+            sscanf(buf, "%d", &index_from);
+            from_indexes[i] = index_from;
+            break;
+          case 't':
+            sscanf(buf, "%d %d", &index_from, &index_to);
+            from_indexes[i] = index_from;
+            to_indexes[i] = index_to;
+            break;
+        }
+        if ((pos = strchr(buf, '\n')) != NULL) {
+            strcpy(buf, pos + 1);
+        }
+    }
+    close(sock);
+}
+
 void tcl_prompt(void) {
-    FILE *fp_arg;
-    char str_arg[1024];
-    FILE *fp_res;
-    char str_res[1024];
+    char command[1024];
 
     while (1) {
         printf("pattern> ");
-        fgets(str_arg, sizeof(str_arg), stdin);
+        fgets(command, sizeof(command), stdin);
 
-        fp_arg = fopen("argument.txt", "w");
-        char arg[TCL_MAX * 100] = "";
-        tcl_arg(arg);
-        fprintf(fp_arg, "%ld\n%s\n%s", time(NULL), arg, str_arg);
-        fflush(fp_arg);
-        fclose(fp_arg);
-
-        str_res[0] = '\0';
-        while (1) {
-            fp_res = fopen("result.txt", "r");
-            fgets(str_res, sizeof(str_res), fp_res);
-            if (str_res[0] != '\0') { break; }
-
-            usleep(0.2 * 1000000);
-            fclose(fp_res);
-        }
-        fclose(fopen("result.txt", "w")); // clear contents
-
-        if (str_res[0] == '\n') {
+        if (strcmp(command, "\n") == 0) {
             if (TCL_MAX <= tailcall_methods_size_sum) {
                 printf("still over the limit. please enter pattern expression.\n");
+                continue;
             } else {
                 return;
             }
-        } else {
-            long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
-
-            switch(str_res[0]) {
-              case 'd': // 消すものを受け取る
-              case 'k':
-                tcl_delete(fp_res);
-                break;
-              case 't':
-                tcl_truncate(fp_res, str_arg);
-                break;
-              default:
-                printf("bug\n");
-                exit(EXIT_FAILURE);
-            }
-            printf("backtrace updated.\n\n");
-            printf("current backtrace:\n");
-            tcl_print();
-            if (str_res[0] == 'k' || str_res[0] == 'd') {
-                printf("(%ld tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
-            }
-            printf("\n");
-
-            if (str_res[1] == 's') {
-                char *save_command = malloc(1024);
-                strcpy(save_command, str_arg);
-                save_command[strlen(save_command) - 1] = '\0'; // chomp
-                saved_commands[saved_commands_size] = save_command;
-                saved_commands_size++;
-                printf("command `"ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"` saved.\n", save_command);
-                printf("saved commands:\n", save_command);
-                print_saved_commands();
-                printf("\n");
-            }
-
-            if (TCL_MAX <= tailcall_methods_size_sum) {
-                printf("still over the limit. please enter pattern expression.\n");
-            } else {
-                printf("below the limit. press ENTER to resume program.\n");
-            }
         }
-        fclose(fp_res); // while内でbreakした場合はfcloseを通らないので
+        command[strlen(command) - 1] = '\0';
+
+        char argument[TCL_MAX * 100] = "";
+        tcl_arg(argument);
+        strcat(argument, "\n");
+        strcat(argument, command);
+        printf("argument: `%s`\n", argument);
+
+        char type;
+        char save;
+        int positions_size;
+        int from_positions[TCL_MAX * 100];
+        memset(&from_positions, 0, sizeof(from_positions));
+        int to_positions[TCL_MAX * 100];
+        memset(&to_positions, 0, sizeof(to_positions));
+        connect_patern_lang_server(argument, &type, &save, &positions_size, from_positions, to_positions);
+
+        long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
+        switch(type) {
+          case 'd': // 消すものを受け取る
+          case 'k':
+            tcl_delete(from_positions, positions_size);
+            break;
+          case 't':
+            tcl_truncate(from_positions, to_positions, positions_size, command);
+            break;
+          default:
+            printf("bug in tcl_prompt. type: `%c`\n", type);
+            exit(EXIT_FAILURE);
+        }
+        printf("backtrace updated.\n\n");
+        printf("current backtrace:\n");
+        tcl_print();
+        if (type == 'k' || type == 'd') {
+            printf("(%ld tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
+        }
+        printf("\n");
+
+        if (save == 's') {
+            char *save_command = malloc(1024);
+            strcpy(save_command, command);
+            saved_commands[saved_commands_size] = save_command;
+            saved_commands_size++;
+            printf("command `"ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"` saved.\n", save_command);
+            printf("saved commands:\n", save_command);
+            print_saved_commands();
+            printf("\n");
+        }
+
+        if (TCL_MAX <= tailcall_methods_size_sum) {
+            printf("still over the limit. please enter pattern expression.\n");
+        } else {
+            printf("below the limit. press ENTER to resume program.\n");
+        }
     }
     printf("\n");
 }
 
-void tcl_delete(FILE* fp) {
+void tcl_delete(int* positions, int positions_size) {
+    if (positions_size == 0) { return; }
+
     char buf[64];
     int index = 0;
-    int pos = -1;
     tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
-    if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
-    sscanf(buf, "%d", &pos);
+
+    int position_index = 0;
+    int position = positions[position_index];
 
     while (1) {
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
 
         while (m_tmp != NULL) {
-            /* printf("index: %d, pos: %d\n", index, pos); */
-            if (index == pos) {
+            /* printf("index: %d, position: %d\n", index, position); */
+            if (index == position) {
                 /* printf("match (deleted)\n"); */
                 // delete tailcall_method
                 if (m_tmp->next == NULL && m_tmp->prev == NULL) {
@@ -273,8 +332,8 @@ void tcl_delete(FILE* fp) {
                 }
                 tailcall_methods_size_sum--;
                 // TODO free
-                if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
-                sscanf(buf, "%d", &pos);
+                position_index++;
+                position = positions[position_index];
             }
 
             if (m_tmp->next == NULL) { break; }
@@ -282,11 +341,11 @@ void tcl_delete(FILE* fp) {
             index++;
         }
 
-        /* printf("index: %d, pos: %d\n", index, pos); */
-        if (index == pos) {
+        /* printf("index: %d, position: %d\n", index, position); */
+        if (index == position) {
             /* printf("match (not deleted)\n"); */
-            if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
-            sscanf(buf, "%d", &pos);
+            position_index++;
+            position = positions[position_index];
         }
 
         if (f_tmp->next == NULL) { break; }
@@ -295,31 +354,35 @@ void tcl_delete(FILE* fp) {
     }
 }
 
-void tcl_truncate(FILE* fp, char* truncated_by_arg) {
+
+void tcl_truncate(int* from_positions, int* to_positions,
+                  int positions_size, char* command) {
+    if (positions_size == 0) { return; }
+
     char buf[64];
     int index = 0;
-    int truncate_from = -1;
-    int truncate_to = -1;
-    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
-    if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
-    sscanf(buf, "%d %d", &truncate_from, &truncate_to);
-    /* printf("index: %d, truncate_from: %d, truncate_to: %d\n", index, truncate_from, truncate_to); */
+    int positions_index = 0;
+    int from_position = from_positions[positions_index];
+    int to_position = to_positions[positions_index];
+    /* printf("index: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
 
+    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
     tcl_tailcall_method_t *m_tmp_next = NULL;
-    tcl_tailcall_method_t *truncate_from_m = NULL;
-    tcl_tailcall_method_t *truncate_from_m_prev = NULL;
-    tcl_tailcall_method_t *truncate_to_m_next = NULL;
+    tcl_tailcall_method_t *from_position_m = NULL;
+    tcl_tailcall_method_t *from_position_m_prev = NULL;
+    tcl_tailcall_method_t *to_position_m_next = NULL;
+
+    /* printf("index: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
     while (1) {
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
         while (1) {
             if (m_tmp == NULL) { break; }
 
-            /* printf("index: %d, truncate_from: %d, truncate_to: %d\n", index, truncate_from, truncate_to); */
-            if (index == truncate_from) {
-                truncate_from_m = m_tmp;
-                truncate_from_m_prev = m_tmp->prev;
+            if (index == from_position) {
+                from_position_m = m_tmp;
+                from_position_m_prev = m_tmp->prev;
                 // 全消し
-                for (int i = truncate_from; i <= truncate_to; i++) {
+                for (int i = from_position; i <= to_position; i++) {
                     m_tmp_next = m_tmp->next;
                     free(m_tmp);
                     tailcall_methods_size_sum--;
@@ -328,41 +391,43 @@ void tcl_truncate(FILE* fp, char* truncated_by_arg) {
                 }
                 // 置き換え
                 char* truncated_by = malloc(1024);
-                strcpy(truncated_by, truncated_by_arg);
+                strcpy(truncated_by, command);
                 truncated_by[strlen(truncated_by) - 1] = '\0'; // chop
 
-                truncate_to_m_next = m_tmp;
+                to_position_m_next = m_tmp;
                 tcl_tailcall_method_t *m_truncated = malloc(sizeof(tcl_tailcall_method_t));
                 *m_truncated = (tcl_tailcall_method_t) {
                     NULL,
                     NULL,
                     truncated_by,
-                    (truncate_to - truncate_from) + 1, // truncated_count
+                    (to_position - from_position) + 1, // truncated_count
                     NULL,
                     NULL
                 };
                 tailcall_methods_size_sum++;
 
-                if (truncate_from_m_prev == NULL && truncate_to_m_next == NULL) {
+                if (from_position_m_prev == NULL && to_position_m_next == NULL) {
                     f_tmp->tailcall_methods_head = m_truncated;
                     f_tmp->tailcall_methods_tail = m_truncated;
-                } else if (truncate_from_m_prev == NULL) {
+                } else if (from_position_m_prev == NULL) {
                     f_tmp->tailcall_methods_head = m_truncated;
-                    m_truncated->next = truncate_to_m_next;
-                    truncate_to_m_next->prev = m_truncated;
-                } else if (truncate_to_m_next == NULL) {
+                    m_truncated->next = to_position_m_next;
+                    to_position_m_next->prev = m_truncated;
+                } else if (to_position_m_next == NULL) {
                     f_tmp->tailcall_methods_tail = m_truncated;
-                    m_truncated->prev = truncate_from_m_prev;
-                    truncate_from_m_prev->next = m_truncated;
+                    m_truncated->prev = from_position_m_prev;
+                    from_position_m_prev->next = m_truncated;
                 } else {
-                    m_truncated->prev = truncate_from_m_prev;
-                    truncate_from_m_prev->next = m_truncated;
-                    m_truncated->next = truncate_to_m_next;
-                    truncate_to_m_next->prev = m_truncated;
+                    m_truncated->prev = from_position_m_prev;
+                    from_position_m_prev->next = m_truncated;
+                    m_truncated->next = to_position_m_next;
+                    to_position_m_next->prev = m_truncated;
                 }
                 // 更新
-                if (fgets(buf, sizeof(buf), fp) == NULL) { return; }
-                sscanf(buf, "%d %d", &truncate_from, &truncate_to);
+                positions_index++;
+                from_position = from_positions[positions_index];
+                to_position = to_positions[positions_index];
+
                 if (m_tmp == NULL) {
                     index--; // 上げすぎた分を相殺
                     break;
@@ -371,14 +436,14 @@ void tcl_truncate(FILE* fp, char* truncated_by_arg) {
                 if (m_tmp->next == NULL) { break; }
                 m_tmp = m_tmp->next;
                 index++;
-                /* printf("index: %d, truncate_from: %d, truncate_to: %d\n", index, truncate_from, truncate_to); */
             }
+            /* printf("index: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
         }
 
         if (f_tmp->next == NULL) { break; }
         f_tmp = f_tmp->next;
         index++;
-        /* printf("index: %d, truncate_from: %d, truncate_to: %d\n", index, truncate_from, truncate_to); */
+        /* printf("index: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
     }
 }
 
@@ -427,49 +492,39 @@ void print_saved_commands(void) {
 }
 
 void tcl_apply_saved(void) {
-    FILE *fp_arg;
-    char *str_arg;
-    FILE *fp_res;
-    char str_res[1024];
+    char *command;
+    char buf[1024];
 
     for (int i = 0; i < saved_commands_size; i++) {
-        str_arg = saved_commands[i];
+        command = saved_commands[i];
 
-        usleep(1.0 * 1000000);
-        fp_arg = fopen("argument.txt", "w");
-        char arg[TCL_MAX * 100] = "";
-        tcl_arg(arg);
-        fprintf(fp_arg, "%ld\n%s\n%s\n", time(NULL), arg, str_arg);
-        fflush(fp_arg);
-        fclose(fp_arg);
+        char argument[TCL_MAX * 100] = "";
+        tcl_arg(argument);
+        strcat(argument, "\n");
+        strcat(argument, command);
+        /* printf("argument: `%s`\n", argument); */
 
-        str_res[0] = '\0';
-        while (1) {
-            fp_res = fopen("result.txt", "r");
-            fgets(str_res, sizeof(str_res), fp_res);
-            if (str_res[0] != '\0') { break; }
+        char type;
+        char save;
+        int positions_size;
+        int from_positions[TCL_MAX * 100];
+        memset(&from_positions, 0, sizeof(from_positions));
+        int to_positions[TCL_MAX * 100];
+        memset(&to_positions, 0, sizeof(to_positions));
+        connect_patern_lang_server(argument, &type, &save, &positions_size, from_positions, to_positions);
 
-            usleep(1.0 * 1000000);
-            fclose(fp_res);
-        }
-        fclose(fopen("result.txt", "w")); // clear contents
-
-        if (str_res[0] == '\n') {
-            printf("bug\n");
-            exit(EXIT_FAILURE);
-        }
-        switch(str_res[0]) {
+        long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
+        switch(type) {
           case 'd': // 消すものを受け取る
           case 'k':
-            tcl_delete(fp_res);
+            tcl_delete(from_positions, positions_size);
             break;
           case 't':
-            tcl_truncate(fp_res, str_arg);
+            tcl_truncate(from_positions, to_positions, positions_size, command);
             break;
           default:
-            printf("bug\n");
+            printf("bug in tcl_apply_saved\n");
             exit(EXIT_FAILURE);
         }
-        fclose(fp_res); // while内でbreakした場合はfcloseを通らないので
     }
 }

@@ -5,5 +5,5 @@ RubyVM::InstructionSequence.compile(
   file_path
 ).eval
 
-outer_loop(5)
+o(5)
 

@@ -58,28 +58,25 @@ def run(string_raw, pattern_exp)
   _discard_empty, *patterns, command = pattern_exp.split('/')
   filtered = filter(string, patterns)
 
-  s = "#{command[0]}#{command[1] || 's'}\n"
   case command[0] # 1文字目
   when 'd'
-    s += filtered.map do |(indexes, _str, skips)|
+    s = filtered.map do |(indexes, _str, skips)|
       if $debug
         p _str, skips
       end
       (indexes - skips).join("\n")
     end.join("\n")
-    s
   when 'k'
     all = (0..(string.size - 1)).to_a
     filtered.each do |(indexes, _str, skips)|
       all -= indexes
       all += skips # kのときの\は「マッチするが残す」にする
     end
-    s += all.join("\n")
-    s
+    s = all.join("\n")
   when 't'
     # 'a a a' '/a \a a/t' が `0 2` ではなく `0 0\n2 2` なるように頑張っている
     p filtered
-    s += filtered.map do |(indexes, str, skips)|
+    s = filtered.map do |(indexes, str, skips)|
       indexes.zip(str)
         .chunk { |(i, _)| !skips.include?(i) } # skipを消す
         .select(&:first).map(&:last)
@@ -92,13 +89,13 @@ def run(string_raw, pattern_exp)
           .map { |e| format('%d %d', e[0], e[-1]) }
           .join("\n")
       end.join("\n")
-    end.join("\n")
-    s.gsub(/\n+/, "\n") # FIXME: 空のjoinで無駄に増えた分をに消す(応急処置)
+    end.join("\n").gsub(/\n+/, "\n").gsub(/^\n+|\n+$/, '')
   end
+  header = "#{command[0]} #{command[1] || 's'} #{s.lines.size}"
+  "#{header}\n#{s}"
 rescue => e
   STDERR.puts e.full_message
   ''
-  "d\n"
 end
 
 def filter(init_string, patterns)
