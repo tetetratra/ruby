@@ -1331,8 +1331,6 @@ each_caller_location(VALUE unused)
 void
 Init_vm_backtrace(void)
 {
-    fclose(fopen("result.txt", "w")); // clear contents
-    fclose(fopen("argument.txt", "w")); // clear contents
     /*
      *  An internal representation of the backtrace. The user will never interact with
      *  objects of this class directly, but class methods can be used to get backtrace
