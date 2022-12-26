@@ -247,7 +247,7 @@ void tcl_prompt(void) {
         tcl_arg(argument);
         strcat(argument, "\n");
         strcat(argument, command);
-        printf("argument: `%s`\n", argument);
+        /* printf("argument: `%s`\n", argument); */
 
         char type;
         char save;
@@ -271,6 +271,8 @@ void tcl_prompt(void) {
             printf("bug in tcl_prompt. type: `%c`\n", type);
             exit(EXIT_FAILURE);
         }
+        tcl_merge_same_truncated_calls();
+
         printf("backtrace updated.\n\n");
         printf("current backtrace:\n");
         tcl_print();
@@ -526,5 +528,38 @@ void tcl_apply_saved(void) {
             printf("bug in tcl_apply_saved\n");
             exit(EXIT_FAILURE);
         }
+        tcl_merge_same_truncated_calls();
     }
 }
+
+void tcl_merge_same_truncated_calls() {
+    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+    while (1) {
+        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        while (1) {
+            if (m_tmp == NULL) { break; }
+
+            if (m_tmp->truncated_by  &&
+                m_tmp->prev && m_tmp->prev->truncated_by &&
+                strcmp(m_tmp->truncated_by, m_tmp->prev->truncated_by) == 0) {
+
+                m_tmp->truncated_count += m_tmp->prev->truncated_count;
+                // TODO: freeする
+                if (m_tmp->prev->prev == NULL) {
+                    f_tmp->tailcall_methods_head = m_tmp;
+                    m_tmp->prev = NULL;
+                } else {
+                    m_tmp->prev->prev->next = m_tmp;
+                    m_tmp->prev = m_tmp->prev->prev;
+                }
+                tailcall_methods_size_sum--;
+            }
+
+            if (m_tmp->next == NULL) { break; }
+            m_tmp = m_tmp->next;
+        }
+        if (f_tmp->next == NULL) { break; }
+        f_tmp = f_tmp->next;
+    }
+}
+
