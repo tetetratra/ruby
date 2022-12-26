@@ -5,4 +5,4 @@ RubyVM::InstructionSequence.compile(
   file_path
 ).eval
 
-f(100)
+f(95)

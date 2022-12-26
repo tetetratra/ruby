@@ -131,7 +131,8 @@ typedef struct rb_backtrace_location_struct {
     ID mid;
 
     bool tailcall;
-    int truncated_size;
+    int truncated_count;
+    char truncated_by[1024];
 } rb_backtrace_location_t;
 
 struct valued_frame_info {
@@ -441,10 +442,9 @@ location_to_str(rb_backtrace_location_t *loc)
         s = rb_str_new2(" ");
         rb_str_cat_cstr(s, ESCAPE_SEQUENCES_RED); // 赤開始
         rb_str_catf(s,
-            " %s... (discarded %d tailcalls) ...%s",
-            ESCAPE_SEQUENCES_RED,
-            loc->truncated_size,
-            ESCAPE_SEQUENCES_RESET
+            ESCAPE_SEQUENCES_RED"(... %d tailcalls truncated by `%s`...)"ESCAPE_SEQUENCES_RESET,
+            loc->truncated_count,
+            loc->truncated_by
         );
         return s;
         break;
@@ -608,15 +608,6 @@ bt_yield_loc(rb_backtrace_location_t *loc, long num_frames, VALUE btobj)
     }
 }
 
-static void
-insert_truncated_location(rb_backtrace_location_t* loc, int truncated_size) {
-    loc->type = LOCATION_TYPE_TRUNCATED;
-    loc->iseq = NULL;
-    loc->pc = NULL;
-    loc->tailcall = false;
-    loc->truncated_size = truncated_size;
-}
-
 static VALUE
 rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_frame, long num_frames, int* start_too_large, bool skip_internal, bool do_yield)
 {
@@ -708,11 +699,18 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
             tailcall_method != NULL;
             tailcall_method = tailcall_method->prev
         ) {
+            bool truncated = tailcall_method->iseq == NULL;
             loc = &bt->backtrace[bt->backtrace_size++];
-            loc->type = LOCATION_TYPE_ISEQ;
+            loc->type = truncated
+                        ? LOCATION_TYPE_TRUNCATED
+                        : LOCATION_TYPE_ISEQ;
             loc->iseq = tailcall_method->iseq;
             loc->pc = tailcall_method->pc;
             loc->tailcall = true;
+            if (truncated) {
+                loc->truncated_count = tailcall_method->truncated_count;
+                strcpy(loc->truncated_by, tailcall_method->truncated_by);
+            }
         }
         f = f->prev;
     }

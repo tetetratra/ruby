@@ -1,1 +1,1 @@
-require_relative 'sample_tailcall/doubleloop.rb'
+require_relative 'sample_tailcall/raise.rb'
