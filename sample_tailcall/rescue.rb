@@ -5,5 +5,4 @@ RubyVM::InstructionSequence.compile(
   file_path
 ).eval
 
-o(300)
-
+f
