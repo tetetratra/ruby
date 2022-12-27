@@ -28,6 +28,12 @@ Doller = Struct.new(:_) do
   end
 end
 
+BackRef = Struct.new(:body) do
+  def inspect
+    "\\#{body}"
+  end
+end
+
 class Range
   def shift(n)
     (self.begin + n)..(self.end + n)
@@ -136,14 +142,18 @@ MACRO = {
 
 def parse(pattern_str)
   macro_regex = MACRO.keys.join('|')
-  parsed = pattern_str.scan(%r@#{macro_regex}|{\d+}|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
+  parsed = pattern_str.scan(%r@#{macro_regex}|\\\d|{\d+}|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
     case poped
     when ')'
       i = pattern.rindex('(')
-      pattern = i.zero? ? [pattern[(i+1)..nil]] : [*pattern[0..(i-1)], pattern[(i+1)..nil]]
+      pattern = if i.zero?
+                  [pattern[(i+1)..nil]]
+                else
+                  [*pattern[0..(i-1)], pattern[(i+1)..nil]]
+                end
     when '+'
       pattern << Plus.new(pattern.pop)
     when '*'
@@ -154,6 +164,8 @@ def parse(pattern_str)
       pattern << Hat.new
     when '$'
       pattern << Doller.new
+    when /\\(\d)/
+      pattern << BackRef.new($1.to_i)
     else
       if matched_macro = MACRO.find { |(regex, _replace)| Regexp.new(regex).match?(poped) }
         pattern.concat matched_macro[1].call(poped)
@@ -166,12 +178,21 @@ def parse(pattern_str)
 end
 
 def compile(pattern)
+  refi = -1 # ref_to 0 は実行中は現れない(matchが先にくるので)
+
   compile_r = ->(pat) do
     case pat
     when String
       ["char #{pat}"]
     when Array
-      pat.map { |p| compile_r.(p) }.flatten(1)
+      refi += 1
+      [
+        refi.zero? ? nil : "ref_from #{refi}",
+        *pat.map { |p| compile_r.(p) }.flatten(1),
+        refi.zero? ? nil : "ref_to #{refi}",
+      ].compact
+    when BackRef
+      ["backref #{pat.body}"]
     when Plus
       compiled = compile_r.(pat.body)
       [
@@ -218,29 +239,35 @@ def scan(code, string)
   arr.compact
 end
 
-def exec(codes, string, from = 0)
+def exec(init_codes, string, from = 0)
   # sp: 0,1,2... から始めることで、前方部分一致をサポート
-  init_vm = (from..(string.size - 1)).map { |i| { sp: i, pc: 0, sp_from: i, skips: [] } }.reverse
+  init_frames = (from..(string.size - 1)).map do |i|
+    { codes: init_codes, sp: i, pc: 0, sp_from: i, skips: [] }
+  end.reverse
 
-  loop.reduce(init_vm) do |vm, _|
-    break nil if vm.empty?
+  loop.reduce(init_frames) do |frames, _|
+    break nil if frames.empty?
 
-    sp = vm.last[:sp] # sp: string pointer
-    pc = vm.last[:pc]
-    sp_from = vm.last[:sp_from]
-    skips = vm.last[:skips]
-    code = codes[pc]
+    f = frames.last
+    frames_tail = frames[0..-2]
+
+    sp      = f[:sp] # sp: string pointer
+    pc      = f[:pc]
+    sp_from = f[:sp_from]
+    skips   = f[:skips]
+    codes   = f[:codes]
+    code    = codes[pc]
 
     if $debug
       puts
-      p vm, code
+      p frames, code
     end
 
     case code
     when /^char (.*)/
       method = string[sp]&.name
       p method if $debug
-      next vm[0..-2] if method.nil?
+      next frames_tail if method.nil?
 
       c = $1
       skip = nil
@@ -250,36 +277,76 @@ def exec(codes, string, from = 0)
       end
 
       if method == c || c == '.'
-        next [*vm[0..-2], { sp: sp + 1, pc: pc + 1, sp_from: sp_from, skips: [*skips, skip].compact }]
+        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: [*skips, skip].compact }]
       else
-        next vm[0..-2]
+        next frames_tail
       end
     when /^hat/
       if sp == 0
-        next [*vm[0..-2], { sp: sp, pc: pc + 1, sp_from: sp_from, skips: skips}]
+        next [*frames_tail, { **f, pc: pc + 1 }]
       else
-        next vm[0..-2]
+        next frames_tail
       end
     when /^doller/
       if sp == string.size
-        next [*vm[0..-2], { sp: sp, pc: pc + 1, sp_from: sp_from, skips: skips }]
+        next [*frames_tail, { **f, pc: pc + 1 }]
       else
-        next vm[0..-2]
+        next frames_tail
       end
     when /^split (-?\d+) (-?\d+)/
       j1 = $1.to_i
       j2 = $2.to_i
       next [
-        *vm[0..-2],
-        { sp: sp, pc: pc + 1,  sp_from: sp_from, skips: skips },
-        { sp: sp, pc: pc + j2, sp_from: sp_from, skips: skips },
-        { sp: sp, pc: pc + j1, sp_from: sp_from, skips: skips } # 最長一致のため、繰り返す方(j1)を先に試す
+        *frames_tail,
+        { **f, pc: pc + 1  },
+        { **f, pc: pc + j2 },
+        { **f, pc: pc + j1 } # 最長一致のため、繰り返す方(j1)を先に試す
       ]
     when /^jump (-?\d+)/
       j = $1.to_i
-      next [*vm[0..-2], { sp: sp, pc: pc + j, sp_from: sp_from, skips: skips }]
+      next [*frames_tail, { **f, pc: pc + j }]
+    when /^ref_from (\d)/
+      next [*frames_tail, { **f, pc: pc + 1, "ref_from_#{$1}": sp }]
+    when /^ref_to (\d)/
+      next [*frames_tail, { **f, pc: pc + 1, "ref_to_#{$1}": sp - 1 }]
+    when /^backref (\d)/
+      chars = string[f[:"ref_from_#{$1}"]..f[:"ref_to_#{$1}"]]
+                    .map(&:name)
+      # jumpで戻ってくる時の位置の計算が合うように、charの連続ではなく1個のcharsに置き換えている
+      next [
+        *frames_tail, {
+          **f,
+          pc: pc,
+          codes: [
+            *codes[0..(pc-1)],
+            "chars #{chars.join(' ')}",
+            *codes[(pc+1)..-1]
+          ]
+        }
+      ]
+    when /chars (.*)/
+      chars = $1.split.map { |c| c.sub('\\', '') }
+      methods = string[sp..nil].take(chars.size).map(&:name).compact
+      next frames_tail if methods.size < chars.size
+
+      add_skips = []
+      methods = methods.map.with_index do |method, i|
+        if method.start_with?('\\')
+          add_skips << sp + i
+          method.sub('\\', '')
+        else
+          method
+        end
+      end
+
+      if chars == methods
+        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: [*skips, *add_skips] }]
+      else
+        next frames_tail
+      end
+
     when /^match/
-      break { sp: sp - 1, pc: pc, sp_from: sp_from, skips: skips }
+      break { **f, sp: sp - 1 }
     end
   end
 end
