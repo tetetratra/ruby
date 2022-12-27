@@ -32,7 +32,7 @@
 
 VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
 
-#define TCL_MAX 10
+#define TCL_MAX 100
 
 #define ESCAPE_SEQUENCES_RED    "\x1B[31;1m"
 #define ESCAPE_SEQUENCES_GREEN  "\x1B[32;1m"

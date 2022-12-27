@@ -129,14 +129,17 @@ end
 
 MACRO = {
   'RECENT' => -> _s {
-    [Times.new('.', 3), Doller.new]
+    [Times.new('.', 50), Doller.new] # '.{50}$'
   },
   'BEGINNING' => -> _s {
     [Hat.new, Times.new('.', 3)]
   },
   '[a-z_<>]+~[a-z_<>]+' => -> s {
     from, to = s.split('~')
-    ["\\#{from}", Mul.new('.'), "\\#{to}"]
+    ["\\#{from}", Mul.new('.'), "\\#{to}"] # '\from.*\to'
+  },
+  'UNIQ' => -> _s { # '(.) \1+'
+    [['.'], Plus.new(BackRef.new(1))]
   }
 }
 
@@ -326,7 +329,7 @@ def exec(init_codes, string, from = 0)
       ]
     when /chars (.*)/
       chars = $1.split.map { |c| c.sub('\\', '') }
-      methods = string[sp..nil].take(chars.size).map(&:name).compact
+      methods = string[sp..-1].take(chars.size).map(&:name).compact
       next frames_tail if methods.size < chars.size
 
       add_skips = []
