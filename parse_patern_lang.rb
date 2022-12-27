@@ -137,9 +137,6 @@ MACRO = {
   '[a-z_<>]+~[a-z_<>]+' => -> s {
     from, to = s.split('~')
     ["\\#{from}", Mul.new('.'), "\\#{to}"] # '\from.*\to'
-  },
-  'UNIQ' => -> _s { # '(.) \1+'
-    [['.'], Plus.new(BackRef.new(1))]
   }
 }
 
