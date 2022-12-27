@@ -1,3 +1,5 @@
+TCL_MAX = 50
+
 Plus = Struct.new(:body) do
   def inspect
     "#{body.inspect}+"
@@ -74,9 +76,8 @@ def run(string_raw, pattern_exp)
     end.join("\n")
   when 'k'
     all = (0..(string.size - 1)).to_a
-    filtered.each do |(indexes, _str, skips)|
+    filtered.each do |(indexes, _str, _skips)|
       all -= indexes
-      all += skips # kのときの\は「マッチするが残す」にする
     end
     s = all.join("\n")
   when 't'
@@ -129,7 +130,7 @@ end
 
 MACRO = {
   'RECENT' => -> _s {
-    [Times.new('.', 50), Doller.new] # '.{50}$'
+    [Times.new('.', TCL_MAX/2), Doller.new] # '.{TCL_MAX}$'
   },
   'BEGINNING' => -> _s {
     [Hat.new, Times.new('.', 3)]
@@ -149,10 +150,11 @@ def parse(pattern_str)
     case poped
     when ')'
       i = pattern.rindex('(')
+      after_bracket = pattern[(i+1)..nil]
       pattern = if i.zero?
-                  [pattern[(i+1)..nil]]
+                  [after_bracket]
                 else
-                  [*pattern[0..(i-1)], pattern[(i+1)..nil]]
+                  [*pattern[0..(i-1)], after_bracket]
                 end
     when '+'
       pattern << Plus.new(pattern.pop)
