@@ -135,8 +135,10 @@ void tcl_pop(void) {
             if (m_tmp->next == NULL) break;
             m_tmp = m_tmp->next;
             free(m_tmp->prev); // FIXME: 要素の中身もfreeするべき
+            tailcall_methods_size_sum--;
         }
         free(m_tmp);
+        tailcall_methods_size_sum--;
     }
     free(tail_frame);
 }
