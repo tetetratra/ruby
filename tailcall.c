@@ -65,8 +65,8 @@ void tcl_print(void) {
         printf(
             "%s%s:%d:in `%s'%s\n",
             first_call ? "" : "        from ",
-            RSTRING_PTR(rb_iseq_path(f_tmp->iseq)),
-            calc_lineno(f_tmp->iseq, f_tmp->pc),
+            f_tmp->iseq ? RSTRING_PTR(rb_iseq_path(f_tmp->iseq)) : "", // FIXME: C関数の場合もちゃんと表示する
+            f_tmp->iseq ? calc_lineno(f_tmp->iseq, f_tmp->pc) : 0,
             f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "<cfunc>",
             first_call ? ESCAPE_SEQUENCES_BLUE" (calling)"ESCAPE_SEQUENCES_RESET : ""
         );

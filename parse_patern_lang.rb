@@ -143,7 +143,7 @@ MACRO = {
 
 def parse(pattern_str)
   macro_regex = MACRO.keys.join('|')
-  parsed = pattern_str.scan(%r@#{macro_regex}|\\\d|{\d+}|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|\\?[a-z_<>]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
+  parsed = pattern_str.scan(%r@#{macro_regex}|\\\d|{\d+}|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|\\?[a-z_<>!?]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
   pattern = []
   until parsed.empty?
     poped = parsed.shift
