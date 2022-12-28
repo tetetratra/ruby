@@ -130,7 +130,7 @@ end
 
 MACRO = {
   'RECENT' => -> _s {
-    [Times.new('.', TCL_MAX/2), Doller.new] # '.{TCL_MAX}$'
+    [Times.new('.', 30), Doller.new] # '.{30}$'
   },
   'BEGINNING' => -> _s {
     [Hat.new, Times.new('.', 3)]
