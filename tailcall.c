@@ -151,19 +151,20 @@ void tcl_arg(char* ret) { // retが戻り値
                 strcat(ret, m_tmp->iseq
                     ? calc_method_name(m_tmp->iseq)
                     : "_"); // ... は _ にして渡す
-                strcat(ret, " ");
+                strcat(ret, "->");
                 if (m_tmp->next == NULL) { break; }
                 m_tmp = m_tmp->next;
             }
         }
         strcat(ret, "@"); // non-tailcallの印
         strcat(ret, f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "cfunc");
-        strcat(ret, " ");
+        strcat(ret, "->");
 
         if (f_tmp->next == NULL) { break; }
         f_tmp = f_tmp->next;
     }
-    ret[strlen(ret) - 1] = '\0'; // trim last whitespace
+    ret[strlen(ret) - 1] = '\0'; // trim last `>`
+    ret[strlen(ret) - 1] = '\0'; // trim last `-`
 }
 
 void connect_patern_lang_server(char *send_str,

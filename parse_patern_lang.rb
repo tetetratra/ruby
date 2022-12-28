@@ -55,7 +55,7 @@ Tailcall = Struct.new(:name) do
 end
 
 def run(string_raw, pattern_exp)
-  string = string_raw.split.map do |s|
+  string = string_raw.split('->').map do |s|
     if s.start_with?('@')
       Call.new(s.sub('@', ''))
     else
