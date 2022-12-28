@@ -203,8 +203,10 @@ void connect_patern_lang_server(char *send_str,
 
     // パース 2行目以降
     char* pos;
+    char buf2[TCL_MAX * 100]; // TODO: 同一のchar*でstrcpyすると謎にバグるから、一旦buf2にstrcpyしてからbufに戻す
     if ((pos = strchr(buf, '\n')) != NULL) {
-        strcpy(buf, pos + 1);
+        strcpy(buf2, pos + 1);
+        strcpy(buf, buf2);
     }
     /* printf("buf: `%s`", buf); */
     int index_from;
@@ -223,7 +225,8 @@ void connect_patern_lang_server(char *send_str,
             break;
         }
         if ((pos = strchr(buf, '\n')) != NULL) {
-            strcpy(buf, pos + 1);
+            strcpy(buf2, pos + 1);
+            strcpy(buf, buf2);
         }
     }
     close(sock);
@@ -318,7 +321,7 @@ void tcl_delete(int* positions, int positions_size) {
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
 
         while (m_tmp != NULL) {
-            /* printf("index: %d, position: %d\n", index, position); */
+            /* printf("index: %d, position: %d, position_index: %d\n", index, position, position_index); */
             if (index == position) {
                 /* printf("match (deleted)\n"); */
                 // delete tailcall_method
@@ -346,7 +349,7 @@ void tcl_delete(int* positions, int positions_size) {
             index++;
         }
 
-        /* printf("index: %d, position: %d\n", index, position); */
+        /* printf("index: %d, position: %d, position_index: %d\n", index, position, position_index); */
         if (index == position) {
             /* printf("match (not deleted)\n"); */
             position_index++;
