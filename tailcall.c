@@ -54,7 +54,7 @@ long tcl_log_size(void) { // FIXME: 「このフレーム以降のサイズ」�
 }
 
 char* calc_method_name(rb_iseq_t *iseq) {
-  return StringValuePtr(ISEQ_BODY(iseq)->location.label);
+  return StringValuePtr(iseq->body->location.label);
 }
 
 void tcl_print(void) {

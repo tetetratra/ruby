@@ -2713,9 +2713,9 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 
     vm_push_frame_without_tcl_push(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
                   calling->recv, calling->block_handler, (VALUE)me,
-                  ISEQ_BODY(iseq)->iseq_encoded + opt_pc, sp,
-                  ISEQ_BODY(iseq)->local_table_size - ISEQ_BODY(iseq)->param.size,
-                  ISEQ_BODY(iseq)->stack_max);
+                  iseq->body->iseq_encoded + opt_pc, sp,
+                  iseq->body->local_table_size - iseq->body->param.size,
+                  iseq->body->stack_max);
 
     cfp->sp = sp_orig;
 

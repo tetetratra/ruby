@@ -16920,6 +16920,7 @@ tailcall.$(OBJEXT): {$(VPATH)}backward/2/long_long.h
 tailcall.$(OBJEXT): {$(VPATH)}backward/2/stdalign.h
 tailcall.$(OBJEXT): {$(VPATH)}backward/2/stdarg.h
 tailcall.$(OBJEXT): {$(VPATH)}config.h
+tailcall.$(OBJEXT): {$(VPATH)}darray.h
 tailcall.$(OBJEXT): {$(VPATH)}debug.h
 tailcall.$(OBJEXT): {$(VPATH)}defines.h
 tailcall.$(OBJEXT): {$(VPATH)}encoding.h
@@ -16927,7 +16928,6 @@ tailcall.$(OBJEXT): {$(VPATH)}eval_intern.h
 tailcall.$(OBJEXT): {$(VPATH)}id.h
 tailcall.$(OBJEXT): {$(VPATH)}intern.h
 tailcall.$(OBJEXT): {$(VPATH)}internal.h
-tailcall.$(OBJEXT): {$(VPATH)}internal/abi.h
 tailcall.$(OBJEXT): {$(VPATH)}internal/anyargs.h
 tailcall.$(OBJEXT): {$(VPATH)}internal/arithmetic.h
 tailcall.$(OBJEXT): {$(VPATH)}internal/arithmetic/char.h
