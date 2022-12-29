@@ -57,7 +57,7 @@ char* calc_method_name(rb_iseq_t *iseq) {
   return StringValuePtr(iseq->body->location.label);
 }
 
-void tcl_print(void) {
+void tcl_pretty_print(void) {
     tcl_frame_t *f_tmp = tcl_frame_tail;
 
     bool first_call = true;
@@ -99,6 +99,47 @@ void tcl_print(void) {
         f_tmp = f_tmp->prev;
         first_call = false;
     }
+}
+
+void tcl_print(void) {
+    tcl_frame_t *f_tmp = tcl_frame_head->next;
+    bool first_call = true;
+    while (1) {
+        if (!first_call) { printf(" -> "); }
+        first_call = false;
+
+        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        if (m_tmp != NULL) {
+            while (1) {
+                if (m_tmp->iseq) {
+                    printf(
+                            ESCAPE_SEQUENCES_GREEN"%s"ESCAPE_SEQUENCES_RESET,
+                            calc_method_name(m_tmp->iseq)
+                          );
+                } else { // ... の場合
+                    printf(
+                            ESCAPE_SEQUENCES_RED
+                            "(`%s` * %d)"
+                            ESCAPE_SEQUENCES_RESET,
+                            m_tmp->truncated_by,
+                            m_tmp->truncated_count
+                          );
+                }
+                printf(" => ");
+                if (m_tmp->next == NULL) { break; }
+                m_tmp = m_tmp->next;
+            }
+        }
+
+        bool current_call = f_tmp->next == NULL;
+        if (current_call) { printf(ESCAPE_SEQUENCES_BLUE); }
+        printf(f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "<cfunc>");
+        if (current_call) { printf(ESCAPE_SEQUENCES_RESET); }
+
+        if (f_tmp->next == NULL) { break; }
+        f_tmp = f_tmp->next;
+    }
+    printf("\n");
 }
 
 void tcl_push(rb_iseq_t *iseq, VALUE *pc) {
@@ -247,8 +288,8 @@ void tcl_prompt(void) {
                 return;
             }
         } else if (strcmp(command, "bt\n") == 0) {
-            printf("current backtrace:\n");
-            tcl_print();
+            printf("current backtrace (full):\n");
+            tcl_pretty_print();
             printf("\n");
             continue;
         } else if (strcmp(command, "ls\n") == 0) {
@@ -304,7 +345,7 @@ void tcl_prompt(void) {
         tcl_merge_same_truncated_calls();
 
         printf("backtrace updated.\n\n");
-        printf("current backtrace:\n");
+        printf("current backtrace: ");
         tcl_print();
         if (type == 'k' || type == 'd') {
             printf("(%ld tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
@@ -396,7 +437,6 @@ void tcl_truncate(int* from_positions, int* to_positions,
     int positions_index = 0;
     int from_position = from_positions[positions_index];
     int to_position = to_positions[positions_index];
-    /* printf("index: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
 
     tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
     tcl_tailcall_method_t *m_tmp_next = NULL;
@@ -484,7 +524,8 @@ void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
         tcl_apply_saved();
     }
     if (TCL_MAX <= tailcall_methods_size_sum) {
-        printf("log size limit reached. please enter pattern expression what logs to discard.\n\ncurrent backtrace:\n");
+        printf("log size limit reached. please enter pattern expression what logs to discard.\n\n");
+        printf("current backtrace: ");
         tcl_print();
         printf("\n");
         tcl_prompt();
