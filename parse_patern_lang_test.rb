@@ -31,6 +31,42 @@ require_relative './parse_patern_lang.rb'
       7 7
       9 9
     EXPECT
+  ],
+  [
+    '@<main>->@cfunc->@<top (required)>->run->@eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->@scan',
+    '/scan/t',
+    <<~EXPECT
+      t s 7
+      7 7
+      8 8
+      9 9
+      10 10
+      11 11
+      12 12
+      13 13
+    EXPECT
+  ],
+  [
+    '@<main>->@cfunc->@<top (required)>->run->@eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->@scan',
+    '/scan+/t',
+    <<~EXPECT
+      t s 1
+      7 13
+    EXPECT
+  ],
+  [
+    "@<main>->@cfunc->@<top (required)>->run->@eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->@scan",
+    "/scan/t",
+    <<~EXPECT
+    t s 7
+    7 7
+    8 8
+    9 9
+    10 10
+    11 11
+    12 12
+    13 13
+    EXPECT
   ]
 ].each do |(s, c, e)|
   r = run(s, c)
