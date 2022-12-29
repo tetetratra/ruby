@@ -1,4 +1,4 @@
-TCL_MAX = 10
+TCL_MAX = 100
 
 Plus = Struct.new(:body) do
   def inspect
