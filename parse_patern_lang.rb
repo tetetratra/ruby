@@ -119,7 +119,7 @@ def filter(init_string, patterns)
       scan(pattern_bytecode, string).map do |last_vm|
         range = last_vm[:sp_from]..last_vm[:sp]
         [
-          range.map { |i| i + init_indexes.first },
+          range.map { |i| i + indexes.first },
           string[range],
           last_vm[:skips]
         ]
