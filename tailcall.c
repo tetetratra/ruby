@@ -310,6 +310,9 @@ void tcl_prompt(void) {
             }
             printf("\n");
             continue;
+        } else if (strcmp(command, "q\n") == 0) {
+            printf("quit\n");
+            exit(EXIT_SUCCESS);
         }
 
         command[strlen(command) - 1] = '\0';
