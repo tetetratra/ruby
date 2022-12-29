@@ -246,7 +246,31 @@ void tcl_prompt(void) {
             } else {
                 return;
             }
+        } else if (strcmp(command, "bt\n") == 0) {
+            printf("current backtrace:\n");
+            tcl_print();
+            printf("\n");
+            continue;
+        } else if (strcmp(command, "ls\n") == 0) {
+            printf("saved commands:\n");
+            print_saved_commands();
+            printf("\n");
+            continue;
+        } else if (strstr(command, "rm ") == command) {
+            int n = 0;
+            sscanf(command, "rm %d", &n);
+            if (0 < n && n <= saved_commands_size) {
+                remove_saved_commands(n - 1);
+                printf("reomved saved command.\n");
+                printf("saved commands:\n");
+                print_saved_commands();
+            } else {
+                printf("invalid number.\n");
+            }
+            printf("\n");
+            continue;
         }
+
         command[strlen(command) - 1] = '\0';
 
         char argument[TCL_MAX * 100] = "";
@@ -293,7 +317,7 @@ void tcl_prompt(void) {
             saved_commands[saved_commands_size] = save_command;
             saved_commands_size++;
             printf("command `"ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"` saved.\n", save_command);
-            printf("saved commands:\n", save_command);
+            printf("saved commands:\n");
             print_saved_commands();
             printf("\n");
         }
@@ -497,6 +521,14 @@ void print_saved_commands(void) {
     for (int i = 0; i < saved_commands_size; i++) {
         printf("        %d: "ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"\n", i + 1, saved_commands[i]);
     }
+}
+
+void remove_saved_commands(int index) {
+    saved_commands[index] = NULL;
+    for (int i = index + 1; i < saved_commands_size; i++) {
+        strcpy(saved_commands[i - 1], saved_commands[i]);
+    }
+    saved_commands_size--;
 }
 
 void tcl_apply_saved(void) {
