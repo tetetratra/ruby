@@ -1,4 +1,4 @@
-TCL_MAX = 50
+TCL_MAX = 10
 
 Plus = Struct.new(:body) do
   def inspect
@@ -68,11 +68,11 @@ def run(string_raw, pattern_exp)
 
   case command[0] # 1文字目
   when 'd'
-    s = filtered.map do |(indexes, _str, skips)|
+    s = filtered.flat_map do |(indexes, _str, skips)|
       if $debug
         p _str, skips
       end
-      (indexes - skips).join("\n")
+      indexes - skips
     end.join("\n")
   when 'k'
     all = (0..(string.size - 1)).to_a
@@ -82,7 +82,6 @@ def run(string_raw, pattern_exp)
     s = all.join("\n")
   when 't'
     # 'a a a' '/a \a a/t' が `0 2` ではなく `0 0\n2 2` なるように頑張っている
-    p filtered
     s = filtered.map do |(indexes, str, skips)|
       indexes.zip(str)
         .chunk { |(i, _)| !skips.include?(i) } # skipを消す
@@ -121,7 +120,7 @@ def filter(init_string, patterns)
         [
           range.map { |i| i + indexes.first },
           string[range],
-          last_vm[:skips]
+          [*skips, *last_vm[:skips]]
         ]
       end
     end
@@ -130,7 +129,7 @@ end
 
 MACRO = {
   'RECENT' => -> _s {
-    [Times.new('.', 30), Doller.new] # '.{30}$'
+    [Times.new('.', TCL_MAX/2), Doller.new] # '.{n}$'
   },
   'BEGINNING' => -> _s {
     [Hat.new, Times.new('.', 3)]
