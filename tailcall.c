@@ -451,12 +451,19 @@ void tcl_truncate(int* from_positions, int* to_positions,
             if (m_tmp == NULL) { break; }
 
             if (index == from_position) {
+                /* printf("match\n"); */
                 from_position_m = m_tmp;
                 from_position_m_prev = m_tmp->prev;
+                int truncated_count = 0;
                 // 全消し
                 for (int i = from_position; i <= to_position; i++) {
                     m_tmp_next = m_tmp->next;
-                    free(m_tmp);
+                    if (m_tmp->iseq == NULL) {
+                        truncated_count += m_tmp->truncated_count;
+                    } else {
+                        truncated_count += 1;
+                    }
+                    free(m_tmp); // TODO: 内側もfreeする
                     tailcall_methods_size_sum--;
                     m_tmp = m_tmp_next;
                     index++;
@@ -472,7 +479,7 @@ void tcl_truncate(int* from_positions, int* to_positions,
                     NULL,
                     NULL,
                     truncated_by,
-                    (to_position - from_position) + 1, // truncated_count
+                    truncated_count,
                     NULL,
                     NULL
                 };

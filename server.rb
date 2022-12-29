@@ -12,5 +12,6 @@ loop do
   p result
   sock.write result # クライアントへ文字列返却
   sock.close # ソケット CLOSE
+  puts
 end
 
