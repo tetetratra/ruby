@@ -5,5 +5,5 @@ RubyVM::InstructionSequence.compile(
   file_path
 ).eval
 
-o(1)
+a(100, 100, 100)
 
