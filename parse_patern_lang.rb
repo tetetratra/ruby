@@ -42,26 +42,9 @@ class Range
   end
 end
 
-Call = Struct.new(:name) do
-  def inspect
-    "@#{name.inspect}"
-  end
-end
-
-Tailcall = Struct.new(:name) do
-  def inspect
-    name.inspect
-  end
-end
-
 def run(string_raw, pattern_exp)
-  string = string_raw.split('->').map do |s|
-    if s.start_with?('@')
-      Call.new(s.sub('@', ''))
-    else
-      Tailcall.new(s)
-    end
-  end
+  string = string_raw.split('->')
+
   p string if $debug
   _discard_empty, *patterns, command = pattern_exp.split('/')
   filtered = filter(string, patterns)
@@ -81,21 +64,9 @@ def run(string_raw, pattern_exp)
     end
     s = all.join("\n")
   when 't'
-    # 'a a a' '/a \a a/t' が `0 2` ではなく `0 0\n2 2` なるように頑張っている
-    s = filtered.map do |(indexes, str, skips)|
-      indexes.zip(str)
-        .chunk { |(i, _)| !skips.include?(i) } # skipを消す
-        .select(&:first).map(&:last)
-        .map do |split_by_skip|
-
-        split_by_skip
-          .chunk { |(_i, call)| Tailcall === call } # Tailcallを消す
-          .select(&:first).map(&:last)
-          .map { |e| e.map(&:first) } # indexのみになるように整形
-          .map { |e| format('%d %d', e[0], e[-1]) }
-          .join("\n")
-      end.join("\n")
-    end.join("\n").gsub(/\n+/, "\n").gsub(/^\n+|\n+$/, '')
+    s = filtered.flat_map do |(indexes, _str, skips)|
+      indexes - skips
+    end.join("\n")
   end
   header = "#{command[0]} #{command[1] || 's'} #{s.lines.size}"
   "#{header}\n#{s}"
@@ -267,7 +238,7 @@ def exec(init_codes, string, from, is_last_pattern)
 
     case code
     when /^char (.*)/
-      method = string[sp]&.name
+      method = string[sp]
       p method if $debug
       next frames_tail if method.nil?
 
@@ -313,7 +284,6 @@ def exec(init_codes, string, from, is_last_pattern)
       next [*frames_tail, { **f, pc: pc + 1, "ref_to_#{$1}": sp - 1 }]
     when /^backref (\d)/
       chars = string[f[:"ref_from_#{$1}"]..f[:"ref_to_#{$1}"]]
-                    .map(&:name)
       # jumpで戻ってくる時の位置の計算が合うように、charの連続ではなく1個のcharsに置き換えている
       next [
         *frames_tail, {
@@ -328,7 +298,7 @@ def exec(init_codes, string, from, is_last_pattern)
       ]
     when /chars (.*)/
       chars = $1.split.map { |c| c.sub('\\', '') }
-      methods = string[sp..-1].take(chars.size).map(&:name).compact
+      methods = string[sp..-1].take(chars.size).compact
       next frames_tail if methods.size < chars.size
 
       add_skips = []

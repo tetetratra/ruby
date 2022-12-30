@@ -211,8 +211,7 @@ void tcl_arg(char* ret) { // retが戻り値
                 m_tmp = m_tmp->next;
             }
         }
-        strcat(ret, "@"); // non-tailcallの印
-        strcat(ret, f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "cfunc");
+        strcat(ret, f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "cfunc"); // FIXME: ちゃんと求める
         strcat(ret, "->");
 
         if (f_tmp->next == NULL) { break; }
@@ -224,7 +223,7 @@ void tcl_arg(char* ret) { // retが戻り値
 
 void connect_patern_lang_server(char *send_str,
          char *type_addr, char *save_addr, int *indexes_size_addr,
-         int* from_indexes, int* to_indexes) {
+         int* indexes) {
 
     int sock; // ソケットディスクリプタ
     sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -262,21 +261,9 @@ void connect_patern_lang_server(char *send_str,
         strcpy(buf, buf2);
     }
     /* printf("buf: `%s`", buf); */
-    int index_from;
-    int index_to;
     for (int i = 0; i < indexes_size; i++) {
-        switch(type) {
-          case 'd':
-          case 'k':
-            sscanf(buf, "%d", &index_from);
-            from_indexes[i] = index_from;
-            break;
-          case 't':
-            sscanf(buf, "%d %d", &index_from, &index_to);
-            from_indexes[i] = index_from;
-            to_indexes[i] = index_to;
-            break;
-        }
+        sscanf(buf, "%d", &indexes[i]);
+
         if ((pos = strchr(buf, '\n')) != NULL) {
             strcpy(buf2, pos + 1);
             strcpy(buf, buf2);
@@ -338,20 +325,18 @@ void tcl_prompt(void) {
         char type;
         char save;
         int positions_size;
-        int from_positions[TCL_MAX * 100];
-        memset(&from_positions, 0, sizeof(from_positions));
-        int to_positions[TCL_MAX * 100];
-        memset(&to_positions, 0, sizeof(to_positions));
-        connect_patern_lang_server(argument, &type, &save, &positions_size, from_positions, to_positions);
+        int positions[TCL_MAX * 100];
+        memset(&positions, 0, sizeof(positions));
+        connect_patern_lang_server(argument, &type, &save, &positions_size, positions);
 
         long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
         switch(type) {
           case 'd': // 消すものを受け取る
           case 'k':
-            tcl_delete(from_positions, positions_size);
+            tcl_delete(positions, positions_size);
             break;
           case 't':
-            tcl_truncate(from_positions, to_positions, positions_size, command);
+            tcl_truncate(positions, positions_size, command);
             break;
           default:
             printf("bug in tcl_prompt. type: `%c`\n", type);
@@ -402,6 +387,7 @@ void tcl_delete(int* positions, int positions_size) {
             if (m_tmp == NULL) { break; }
             /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
             /* tcl_primt_method(m_tmp); */
+
             if (index == position) {
                 /* printf("match\n"); */
                 // delete tailcall_method
@@ -420,6 +406,7 @@ void tcl_delete(int* positions, int positions_size) {
                 }
                 tailcall_methods_size_sum--;
                 // TODO free
+                // update index
                 position_index++;
                 position = positions[position_index];
             }
@@ -441,39 +428,31 @@ void tcl_delete(int* positions, int positions_size) {
 }
 
 
-void tcl_truncate(int* from_positions, int* to_positions,
-                  int positions_size, char* command) {
+void tcl_truncate(int* positions, int positions_size, char* command) {
     if (positions_size == 0) { return; }
 
     char buf[64];
     int index = 0;
-    int positions_index = 0;
-    int from_position = from_positions[positions_index];
-    int to_position = to_positions[positions_index];
+    int position_index = 0;
+    int position = positions[position_index];
     tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
 
     while (1) {
         tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
         while (1) {
             if (m_tmp == NULL) { break; }
-            /* printf("\nindex: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
+            /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
             /* tcl_primt_method(m_tmp); */
 
-            if (from_position <= index && index <= to_position) {
-                // 置き換え
+            if (index == position) {
+                /* printf("match\n"); */
+                // replace
                 char* truncated_by = malloc(1024);
                 strcpy(truncated_by, command);
                 truncated_by[strlen(truncated_by) - 1] = '\0'; // chop
 
                 tcl_tailcall_method_t *m_truncated = malloc(sizeof(tcl_tailcall_method_t));
-                *m_truncated = (tcl_tailcall_method_t) {
-                    NULL,
-                    NULL,
-                    truncated_by,
-                    1, // truncated_count
-                    NULL,
-                    NULL
-                };
+                *m_truncated = (tcl_tailcall_method_t) { NULL, NULL, truncated_by, 1 /* truncated_count */, NULL, NULL };
 
                 if (m_tmp->next == NULL && m_tmp->prev == NULL) {
                     f_tmp->tailcall_methods_head = m_truncated;
@@ -492,20 +471,21 @@ void tcl_truncate(int* from_positions, int* to_positions,
                     m_truncated->next = m_tmp->next;
                     m_truncated->prev = m_tmp->prev;
                 }
-
-                // 更新
-                positions_index++;
-                from_position = from_positions[positions_index];
-                to_position = to_positions[positions_index];
-                /* printf("\nindex: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
+                // update index
+                position_index++;
+                position = positions[position_index];
             }
-
             index++;
             if (m_tmp->next == NULL) { break; }
             m_tmp = m_tmp->next;
         }
+        if (index == position) {
+            /* printf("match (not deleted)\n"); */
+            position_index++;
+            position = positions[position_index];
+        }
 
-        /* printf("index: %d, from_position: %d, to_position: %d\n", index, from_position, to_position); */
+        /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
         /* tcl_primt_frame(f_tmp); */
         index++;
         if (f_tmp->next == NULL) { break; }
@@ -582,20 +562,18 @@ void tcl_apply_saved(void) {
         char type;
         char save;
         int positions_size;
-        int from_positions[TCL_MAX * 100];
-        memset(&from_positions, 0, sizeof(from_positions));
-        int to_positions[TCL_MAX * 100];
-        memset(&to_positions, 0, sizeof(to_positions));
-        connect_patern_lang_server(argument, &type, &save, &positions_size, from_positions, to_positions);
+        int positions[TCL_MAX * 100];
+        memset(&positions, 0, sizeof(positions));
+        connect_patern_lang_server(argument, &type, &save, &positions_size, positions);
 
         long prev_tailcall_methods_size_sum = tailcall_methods_size_sum;
         switch(type) {
           case 'd': // 消すものを受け取る
           case 'k':
-            tcl_delete(from_positions, positions_size);
+            tcl_delete(positions, positions_size);
             break;
           case 't':
-            tcl_truncate(from_positions, to_positions, positions_size, command);
+            tcl_truncate(positions, positions_size, command);
             break;
           default:
             printf("bug in tcl_apply_saved\n");
