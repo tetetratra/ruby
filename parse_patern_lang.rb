@@ -107,7 +107,7 @@ end
 def filter(init_string, patterns)
   init_indexes = (0..(init_string.size - 1)).to_a
 
-  patterns.reduce([[init_indexes, init_string, []]]) do |memo, pattern_code|
+  patterns.each_with_index.reduce([[init_indexes, init_string, []]]) do |memo, (pattern_code, i)|
     memo.flat_map do |(indexes, string, skips)|
       pattern_ast = parse(pattern_code)
       p pattern_ast if $debug
@@ -115,7 +115,8 @@ def filter(init_string, patterns)
       pattern_bytecode = compile(pattern_ast)
       p pattern_bytecode if $debug
 
-      scan(pattern_bytecode, string).map do |last_vm|
+      is_last_pattern = patterns.size == i + 1
+      scan(pattern_bytecode, string, is_last_pattern).map do |last_vm|
         range = last_vm[:sp_from]..last_vm[:sp]
         [
           range.map { |i| i + indexes.first },
@@ -220,11 +221,11 @@ def compile(pattern)
   [*compile_r.(pattern), 'match']
 end
 
-def scan(code, string)
+def scan(code, string, is_last_pattern)
   from = 0
   arr = []
   loop do
-    last_vm = exec(code, string, from)
+    last_vm = exec(code, string, from, is_last_pattern)
     break if last_vm.nil?
 
     range = last_vm[:sp_from]..last_vm[:sp]
@@ -240,7 +241,7 @@ def scan(code, string)
   arr.compact
 end
 
-def exec(init_codes, string, from = 0)
+def exec(init_codes, string, from, is_last_pattern)
   # sp: 0,1,2... から始めることで、前方部分一致をサポート
   init_frames = (from..(string.size - 1)).map do |i|
     { codes: init_codes, sp: i, pc: 0, sp_from: i, skips: [] }
@@ -271,14 +272,14 @@ def exec(init_codes, string, from = 0)
       next frames_tail if method.nil?
 
       c = $1
-      skip = nil
-      if c.start_with?('\\')
+      skip = []
+      if c.start_with?('\\') || (method == '_' && c != '_' && is_last_pattern)
         c = c.sub('\\', '')
-        skip = sp
+        skip = [sp]
       end
 
       if method == c || c == '.'
-        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: [*skips, skip].compact }]
+        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: skips + skip }]
       else
         next frames_tail
       end
