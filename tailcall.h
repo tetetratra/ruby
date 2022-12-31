@@ -23,15 +23,13 @@ typedef struct tcl_frame_struct {
     struct tcl_frame_struct *next;
 } tcl_frame_t;
 
-tcl_frame_t* get_tcl_frame_tail(void);
+extern tcl_frame_t *tcl_frame_tail;
+extern long tailcall_methods_size_sum;
 
-long tcl_log_size(void);
-int tcl_truncated_size(void);
-void tcl_print(void);
-void tcl_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
-void tcl_pop(void);
-void tcl_record(rb_iseq_t *iseq, VALUE *pc);
-void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc);
+void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
+void tcl_stack_pop(void);
+void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc);
+void tcl_stack_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc);
 
 #define TAILCALL_H
 #endif

@@ -414,11 +414,11 @@ vm_push_frame(rb_execution_context_t *ec,
         pc = RUBY_VM_PREVIOUS_CONTROL_FRAME(ec->cfp)->pc;
         cfunc = rb_str_to_cstr(rb_id2str(mid));
     }
-    tcl_push(iseq, pc, cfunc);
+    tcl_stack_push(iseq, pc, cfunc);
 }
 
 static void
-vm_push_frame_without_tcl_push(rb_execution_context_t *ec,
+vm_push_frame_without_tcl_stack_push(rb_execution_context_t *ec,
               const rb_iseq_t *iseq,
               VALUE type,
               VALUE self,
@@ -428,7 +428,6 @@ vm_push_frame_without_tcl_push(rb_execution_context_t *ec,
               VALUE *sp,
               int local_size,
               int stack_max) {
-    /* tcl_print(); */
     VM_PUSH_FRAME_BODY;
 }
 
@@ -447,14 +446,13 @@ vm_push_frame_without_tcl_push(rb_execution_context_t *ec,
 static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
-    tcl_pop();
+    tcl_stack_pop();
     VM_POP_FRAME_BODY;
 }
 
 static inline int
-vm_pop_frame_without_tcl_pop(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
+vm_pop_frame_without_tcl_stack_pop(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
-    /* tcl_print(); */
     VM_POP_FRAME_BODY;
 }
 
@@ -2700,15 +2698,15 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 	}
     }
 
-    tcl_record(cfp->iseq, cfp->pc);
-    vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
+    tcl_stack_record(cfp->iseq, cfp->pc);
+    vm_pop_frame_without_tcl_stack_pop(ec, cfp, cfp->ep);
     char *cfunc = NULL;
     if (RUBYVM_CFUNC_FRAME_P(cfp)) {
         rb_callable_method_entry_t *me = rb_vm_frame_method_entry(cfp);
         ID mid = me->def->original_id;
         cfunc = rb_str_to_cstr(rb_id2str(mid));
     }
-    tcl_change_top(iseq, cfp->pc, cfunc);
+    tcl_stack_change_top(iseq, cfp->pc, cfunc);
 
     cfp = ec->cfp;
 
@@ -2723,7 +2721,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 	*sp++ = src_argv[i];
     }
 
-    vm_push_frame_without_tcl_push(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
+    vm_push_frame_without_tcl_stack_push(ec, iseq, VM_FRAME_MAGIC_METHOD | VM_ENV_FLAG_LOCAL | finish_flag,
                   calling->recv, calling->block_handler, (VALUE)me,
                   iseq->body->iseq_encoded + opt_pc, sp,
                   iseq->body->local_table_size - iseq->body->param.size,

@@ -636,7 +636,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         }
     }
 
-    num_frames += tcl_log_size(); // FIXME: caller_locations(n)のnが0以外のケースも考慮する
+    num_frames += tailcall_methods_size_sum; // FIXME: caller_locations(n)のnが0以外のケースも考慮する
 
     bt->backtrace = ZALLOC_N(rb_backtrace_location_t, num_frames);
     bt->backtrace_size = 0;
@@ -644,7 +644,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         if (start_too_large) *start_too_large = 0;
         return btobj;
     }
-    tcl_frame_t *f = get_tcl_frame_tail();
+    tcl_frame_t *f = tcl_frame_tail;
 
     for (; cfp != end_cfp && (bt->backtrace_size < num_frames); cfp = RUBY_VM_PREVIOUS_CONTROL_FRAME(cfp)) {
         if (cfp->iseq) {
