@@ -46,40 +46,52 @@ def run(string_raw, pattern_exp)
   string = string_raw.split('->')
 
   p string if $debug
-  _discard_empty, *patterns, command = pattern_exp.split('/')
+  _, *patterns, command = pattern_exp.split('/')
   filtered = filter(string, patterns)
 
   case command[0] # 1文字目
   when 'd'
-    s = filtered.flat_map do |(indexes, _str, skips)|
-      if $debug
-        p _str, skips
-      end
+    s = filtered.flat_map do |f|
+      indexes, skips = f.fetch_values(:indexes, :skips)
       indexes - skips
     end.join("\n")
   when 'k'
     all = (0..(string.size - 1)).to_a
-    filtered.each do |(indexes, _str, _skips)|
-      all -= indexes
-    end
-    s = all.join("\n")
+    s = filtered.map do |f|
+      indexes, indexes_for, skips = f.fetch_values(:indexes, :indexes_for, :skips)
+      indexes_for - indexes - skips
+    end.reduce(all, :&).join("\n")
   when 't'
-    s = filtered.flat_map do |(indexes, _str, skips)|
+    s = filtered.flat_map do |f|
+      indexes, skips = f.fetch_values(:indexes, :skips)
       indexes - skips
     end.join("\n")
   end
-  header = "#{command[0]} #{command[1] || 's'} #{s.lines.size}"
+  header = make_header(command, s)
   "#{header}\n#{s}"
 rescue => e
   STDERR.puts e.full_message
   ''
 end
 
+def make_header(command, s)
+  type = command[0]
+  save = command.include?('1') ? '1' : 's'
+  include_log = command.include?('_') ? '_' : 'x'
+  size = s.lines.size
+  "#{type} #{save} #{include_log} #{size}" # /foo/d1_ など
+end
+
 def filter(init_string, patterns)
   init_indexes = (0..(init_string.size - 1)).to_a
-
-  patterns.each_with_index.reduce([[init_indexes, init_string, []]]) do |memo, (pattern_code, i)|
-    memo.flat_map do |(indexes, string, skips)|
+  init = {
+    indexes: init_indexes,
+    string: init_string,
+    skips: []
+  }
+  patterns.each_with_index.reduce([init]) do |memo, (pattern_code, i)|
+    memo.flat_map do |m|
+      indexes, string, skips = m.fetch_values(:indexes, :string, :skips)
       pattern_ast = parse(pattern_code)
       p pattern_ast if $debug
 
@@ -89,11 +101,13 @@ def filter(init_string, patterns)
       is_last_pattern = patterns.size == i + 1
       scan(pattern_bytecode, string, is_last_pattern).map do |last_vm|
         range = last_vm[:sp_from]..last_vm[:sp]
-        [
-          range.map { |i| i + indexes.first },
-          string[range],
-          [*skips, *last_vm[:skips]]
-        ]
+        new_skips = last_vm[:skips].map { |i| i + indexes.first }
+        {
+          indexes: range.map { |i| i + indexes.first },
+          indexes_for: indexes, # 前回のindexes
+          string: string[range],
+          skips: [*skips, *new_skips]
+        }
       end
     end
   end
@@ -245,14 +259,14 @@ def exec(init_codes, string, from, is_last_pattern)
       next frames_tail if method.nil?
 
       c = $1
-      skip = []
-      if c.start_with?('\\') || (method == '_' && c != '_' && is_last_pattern)
+      next_skips = skips.dup
+      if c.start_with?('\\')
         c = c.sub('\\', '')
-        skip = [sp]
+        next_skips << sp
       end
 
       if method == c || c == '.'
-        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: skips + skip }]
+        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: next_skips }]
       else
         next frames_tail
       end
