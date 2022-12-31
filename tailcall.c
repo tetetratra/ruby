@@ -498,9 +498,10 @@ void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
     }
 }
 
-void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc) {
+void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc) {
     tcl_frame_tail->iseq = iseq;
     tcl_frame_tail->pc = pc;
+    tcl_frame_tail->cfunc = cfunc;
 }
 
 void print_saved_commands(void) {

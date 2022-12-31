@@ -31,7 +31,7 @@ void tcl_print(void);
 void tcl_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
 void tcl_pop(void);
 void tcl_record(rb_iseq_t *iseq, VALUE *pc);
-void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc);
+void tcl_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc);
 
 #define TAILCALL_H
 #endif

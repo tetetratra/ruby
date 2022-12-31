@@ -2702,8 +2702,13 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 
     tcl_record(cfp->iseq, cfp->pc);
     vm_pop_frame_without_tcl_pop(ec, cfp, cfp->ep);
-    /* tcl_print(); */
-    tcl_change_top(iseq, cfp->pc);
+    char *cfunc = NULL;
+    if (RUBYVM_CFUNC_FRAME_P(cfp)) {
+        rb_callable_method_entry_t *me = rb_vm_frame_method_entry(cfp);
+        ID mid = me->def->original_id;
+        cfunc = rb_str_to_cstr(rb_id2str(mid));
+    }
+    tcl_change_top(iseq, cfp->pc, cfunc);
 
     cfp = ec->cfp;
 
