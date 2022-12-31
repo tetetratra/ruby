@@ -286,6 +286,11 @@ void tcl_prompt(void) {
             } else {
                 return;
             }
+        } else if (strcmp(command, "b\n") == 0) {
+            printf("current backtrace:\n");
+            tcl_print();
+            printf("\n");
+            continue;
         } else if (strcmp(command, "bt\n") == 0) {
             printf("current backtrace (full):\n");
             tcl_pretty_print();
@@ -345,7 +350,7 @@ void tcl_prompt(void) {
         tcl_merge_same_truncated_calls();
 
         printf("backtrace updated.\n\n");
-        printf("current backtrace: ");
+        printf("current backtrace:\n");
         tcl_print();
         if (type == 'k' || type == 'd') {
             printf("(%ld tailcalls are deleted.)\n", prev_tailcall_methods_size_sum - tailcall_methods_size_sum);
@@ -499,7 +504,7 @@ void tcl_record(rb_iseq_t *iseq, VALUE *pc) {
     }
     if (TCL_MAX <= tailcall_methods_size_sum) {
         printf("log size limit reached. please enter pattern expression what logs to discard.\n\n");
-        printf("current backtrace: ");
+        printf("current backtrace:\n");
         tcl_print();
         printf("\n");
         tcl_prompt();
