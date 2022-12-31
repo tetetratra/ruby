@@ -636,7 +636,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         }
     }
 
-    num_frames += tailcall_methods_size_sum; // FIXME: caller_locations(n)のnが0以外のケースも考慮する
+    num_frames += tailcalls_size_sum; // FIXME: caller_locations(n)のnが0以外のケースも考慮する
 
     bt->backtrace = ZALLOC_N(rb_backtrace_location_t, num_frames);
     bt->backtrace_size = 0;
@@ -681,7 +681,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
         }
 
         for (
-            tcl_tailcall_method_t *tailcall_method = f->tailcall_methods_tail;
+            tcl_tailcall_t *tailcall_method = f->tailcall_tail;
             tailcall_method != NULL;
             tailcall_method = tailcall_method->prev
         ) {
