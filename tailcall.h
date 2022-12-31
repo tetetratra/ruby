@@ -29,7 +29,7 @@ extern long tailcalls_size_sum;
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
 void tcl_stack_pop(void);
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc);
-void tcl_stack_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc);
+void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc);
 
 #define TAILCALL_H
 #endif

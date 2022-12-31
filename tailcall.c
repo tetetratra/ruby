@@ -27,9 +27,9 @@ long tailcalls_size_sum = 0;
 char *saved_commands[SAVE_MAX];
 int saved_commands_size = 0;
 
-static void tcl_log_delete(int* positions, int positions_size);
-static void tcl_log_truncate(int* positions, int positions_size, char* command);
-static void tcl_log_merge_same_truncated_calls();
+static void log_delete(int* positions, int positions_size);
+static void log_truncate(int* positions, int positions_size, char* command);
+static void log_uniq();
 static void free_tailcall(tcl_tailcall_t *t);
 static void free_frame(tcl_frame_t *f);
 static void connect_patern_lang_server(char *send_str, char *type_addr, char *save_addr, int *indexes_size_addr, int* indexes);
@@ -43,16 +43,15 @@ static void remove_saved_commands(int index);
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
 void tcl_stack_pop(void);
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc);
-void tcl_stack_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc);
+void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc);
 
 static char* calc_method_name(rb_iseq_t *iseq) {
     return StringValuePtr(iseq->body->location.label);
 }
 
-static void tcl_log_delete(int* positions, int positions_size) {
+static void log_delete(int* positions, int positions_size) {
     if (positions_size == 0) { return; }
 
-    char buf[64];
     int index = 0;
     int position_index = 0;
     int position = positions[position_index];
@@ -102,10 +101,9 @@ static void tcl_log_delete(int* positions, int positions_size) {
     }
 }
 
-static void tcl_log_truncate(int* positions, int positions_size, char* command) {
+static void log_truncate(int* positions, int positions_size, char* command) {
     if (positions_size == 0) { return; }
 
-    char buf[64];
     int index = 0;
     int position_index = 0;
     int position = positions[position_index];
@@ -165,7 +163,7 @@ static void tcl_log_truncate(int* positions, int positions_size, char* command) 
     }
 }
 
-static void tcl_log_merge_same_truncated_calls() {
+static void log_uniq() {
     tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
     while (true) {
         tcl_tailcall_t *t = f->tailcall_head;
@@ -232,10 +230,7 @@ static void connect_patern_lang_server(char *send_str,
 
     // パース 1行目
     sscanf(buf, "%c %c %d", type_addr, save_addr, indexes_size_addr);
-    char type = *type_addr;
-    char save = *save_addr;
     int indexes_size = *indexes_size_addr;
-    /* printf("%c %c %d\n", type, save, indexes_size); */
 
     // パース 2行目以降
     char* pos;
@@ -357,7 +352,7 @@ static void print_log_oneline(void) {
 
         bool current_call = f->next == NULL;
         if (current_call) { printf(ESCAPE_SEQUENCES_BLUE); }
-        printf(f->cfunc ? f->cfunc : calc_method_name(f->iseq));
+        printf("%s", f->cfunc ? f->cfunc : calc_method_name(f->iseq));
         if (current_call) { printf(ESCAPE_SEQUENCES_RESET); }
 
         if (f->next == NULL) { break; }
@@ -432,16 +427,16 @@ static void prompt(void) {
         switch(type) {
             case 'd': // 消すものを受け取る
             case 'k':
-                tcl_log_delete(positions, positions_size);
+                log_delete(positions, positions_size);
                 break;
             case 't':
-                tcl_log_truncate(positions, positions_size, command);
+                log_truncate(positions, positions_size, command);
                 break;
             default:
                 printf("bug in prompt. type: `%c`\n", type);
                 exit(EXIT_FAILURE);
         }
-        tcl_log_merge_same_truncated_calls();
+        log_uniq();
 
         printf("backtrace updated.\n\n");
         printf("current backtrace:\n");
@@ -473,7 +468,6 @@ static void prompt(void) {
 
 static void apply_saved(void) {
     char *command;
-    char buf[1024];
 
     for (int i = 0; i < saved_commands_size; i++) {
         command = saved_commands[i];
@@ -491,20 +485,19 @@ static void apply_saved(void) {
         memset(&positions, 0, sizeof(positions));
         connect_patern_lang_server(argument, &type, &save, &positions_size, positions);
 
-        long prev_tailcalls_size_sum = tailcalls_size_sum;
         switch(type) {
             case 'd': // 消すものを受け取る
             case 'k':
-                tcl_log_delete(positions, positions_size);
+                log_delete(positions, positions_size);
                 break;
             case 't':
-                tcl_log_truncate(positions, positions_size, command);
+                log_truncate(positions, positions_size, command);
                 break;
             default:
                 printf("bug in apply_saved\n");
                 exit(EXIT_FAILURE);
         }
-        tcl_log_merge_same_truncated_calls();
+        log_uniq();
     }
 }
 
@@ -598,7 +591,7 @@ void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
     }
 }
 
-void tcl_stack_change_top(const rb_iseq_t *iseq, VALUE *pc, char* cfunc) {
+void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc) {
     tcl_frame_tail->iseq = iseq;
     tcl_frame_tail->pc = pc;
     tcl_frame_tail->cfunc = cfunc;
