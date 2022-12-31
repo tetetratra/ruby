@@ -81,8 +81,7 @@ static void tcl_log_delete(int* positions, int positions_size) {
                     t->next->prev = t->prev;
                 }
                 tailcalls_size_sum--;
-                // TODO free
-                free(t);
+                free_tailcall(t);
                 // update index
                 position_index++;
                 position = positions[position_index];
@@ -178,7 +177,7 @@ static void tcl_log_merge_same_truncated_calls() {
                     strcmp(t->truncated_by, t->prev->truncated_by) == 0) {
 
                 t->truncated_count += t->prev->truncated_count;
-                // TODO: freeする
+                free_tailcall(t->prev);
                 if (t->prev->prev == NULL) {
                     f->tailcall_head = t;
                     t->prev = NULL;
@@ -198,9 +197,12 @@ static void tcl_log_merge_same_truncated_calls() {
 }
 
 static void free_tailcall(tcl_tailcall_t *t) {
+    if (t->truncated_by != NULL) { free(t->truncated_by); }
+    free(t);
 }
 
 static void free_frame(tcl_frame_t *f) {
+    free(f);
 }
 
 static void connect_patern_lang_server(char *send_str,
@@ -553,13 +555,13 @@ void tcl_stack_pop(void) {
         while (true) {
             if (t->next == NULL) break;
             t = t->next;
-            free(t->prev); // FIXME: 要素の中身もfreeするべき
+            free_tailcall(t->prev);
             tailcalls_size_sum--;
         }
-        free(t);
+        free_tailcall(t);
         tailcalls_size_sum--;
     }
-    free(tail_frame);
+    free_frame(tail_frame);
 }
 
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
