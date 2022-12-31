@@ -106,8 +106,10 @@ MACRO = {
   'BEGINNING' => -> _s {
     [Hat.new, Times.new('.', 3)]
   },
-  '[a-z_<>]+~[a-z_<>]+' => -> s {
+  '[a-z_<>!?.]*~[a-z_<>!?.]*' => -> s {
     from, to = s.split('~')
+    from = '.' if from.nil? || from.empty?
+    to = '.' if to.nil? || to.empty?
     ["\\#{from}", Mul.new('.'), "\\#{to}"] # '\from.*\to'
   }
 }
