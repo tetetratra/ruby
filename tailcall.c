@@ -1,9 +1,8 @@
 #include "tailcall.h"
-#include "vm_backtrace.h"
-
-#include "ruby/internal/config.h"
+#include "iseq.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
@@ -12,23 +11,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-#include "vm_core.h"
-#include "method.h"
-#include "iseq.h"
-
-#include "constant.h"
-#include "debug_counter.h"
-#include "internal.h"
-#include "internal/class.h"
-#include "internal/compar.h"
-#include "internal/hash.h"
-#include "internal/numeric.h"
-#include "internal/proc.h"
-#include "internal/random.h"
-#include "internal/variable.h"
-#include "internal/struct.h"
-#include "variable.h"
 
 VALUE rb_obj_equal(VALUE obj1, VALUE obj2);
 
@@ -58,27 +40,27 @@ char* calc_method_name(rb_iseq_t *iseq) {
 }
 
 void tcl_pretty_print(void) {
-    tcl_frame_t *f_tmp = tcl_frame_tail;
+    tcl_frame_t *f = tcl_frame_tail;
 
     bool first_call = true;
     while (1) {
         printf(
             "%s%s:%d:in `%s'%s\n",
             first_call ? "" : "        from ",
-            RSTRING_PTR(rb_iseq_path(f_tmp->iseq)),
-            calc_lineno(f_tmp->iseq, f_tmp->pc),
-            f_tmp->cfunc ? f_tmp->cfunc : calc_method_name(f_tmp->iseq),
+            RSTRING_PTR(rb_iseq_path(f->iseq)),
+            calc_lineno(f->iseq, f->pc),
+            f->cfunc ? f->cfunc : calc_method_name(f->iseq),
             first_call ? ESCAPE_SEQUENCES_BLUE" (calling)"ESCAPE_SEQUENCES_RESET : ""
         );
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_tail;
-        if (m_tmp != NULL) {
+        tcl_tailcall_method_t *m = f->tailcall_methods_tail;
+        if (m != NULL) {
             while (1) {
-                if (m_tmp->iseq) {
+                if (m->iseq) {
                     printf(
                             "        from %s:%d:in `%s' %s\n",
-                            RSTRING_PTR(rb_iseq_path(m_tmp->iseq)),
-                            calc_lineno(m_tmp->iseq, m_tmp->pc),
-                            calc_method_name(m_tmp->iseq),
+                            RSTRING_PTR(rb_iseq_path(m->iseq)),
+                            calc_lineno(m->iseq, m->pc),
+                            calc_method_name(m->iseq),
                             ESCAPE_SEQUENCES_GREEN"(tailcall)"ESCAPE_SEQUENCES_RESET
                           );
                 } else { // ... の場合
@@ -87,57 +69,57 @@ void tcl_pretty_print(void) {
                             ESCAPE_SEQUENCES_RED
                             "(... %d tailcalls truncated by `%s`...)"
                             ESCAPE_SEQUENCES_RESET"\n",
-                            m_tmp->truncated_count,
-                            m_tmp->truncated_by
+                            m->truncated_count,
+                            m->truncated_by
                           );
                 }
-                if (m_tmp->prev == NULL) { break; }
-                m_tmp = m_tmp->prev;
+                if (m->prev == NULL) { break; }
+                m = m->prev;
             }
         }
-        if (f_tmp->prev->prev == NULL) { break; }
-        f_tmp = f_tmp->prev;
+        if (f->prev->prev == NULL) { break; }
+        f = f->prev;
         first_call = false;
     }
 }
 
 void tcl_print(void) {
-    tcl_frame_t *f_tmp = tcl_frame_head->next;
+    tcl_frame_t *f = tcl_frame_head->next;
     bool first_call = true;
     while (1) {
         if (!first_call) { printf(" -> "); }
         first_call = false;
 
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
-        if (m_tmp != NULL) {
+        tcl_tailcall_method_t *m = f->tailcall_methods_head;
+        if (m != NULL) {
             while (1) {
-                if (m_tmp->iseq) {
+                if (m->iseq) {
                     printf(
                             ESCAPE_SEQUENCES_GREEN"%s"ESCAPE_SEQUENCES_RESET,
-                            calc_method_name(m_tmp->iseq)
+                            calc_method_name(m->iseq)
                           );
                 } else { // ... の場合
                     printf(
                             ESCAPE_SEQUENCES_RED
                             "(`%s` * %d)"
                             ESCAPE_SEQUENCES_RESET,
-                            m_tmp->truncated_by,
-                            m_tmp->truncated_count
+                            m->truncated_by,
+                            m->truncated_count
                           );
                 }
                 printf(" => ");
-                if (m_tmp->next == NULL) { break; }
-                m_tmp = m_tmp->next;
+                if (m->next == NULL) { break; }
+                m = m->next;
             }
         }
 
-        bool current_call = f_tmp->next == NULL;
+        bool current_call = f->next == NULL;
         if (current_call) { printf(ESCAPE_SEQUENCES_BLUE); }
-        printf(f_tmp->cfunc ? f_tmp->cfunc : calc_method_name(f_tmp->iseq));
+        printf(f->cfunc ? f->cfunc : calc_method_name(f->iseq));
         if (current_call) { printf(ESCAPE_SEQUENCES_RESET); }
 
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
+        if (f->next == NULL) { break; }
+        f = f->next;
     }
     printf("\n");
 }
@@ -170,40 +152,40 @@ void tcl_pop(void) {
     tcl_frame_tail = tcl_frame_tail->prev;
     tcl_frame_tail->next = NULL;
     // free
-    tcl_tailcall_method_t* m_tmp = tail_frame->tailcall_methods_head;
-    if (m_tmp != NULL) {
+    tcl_tailcall_method_t* m = tail_frame->tailcall_methods_head;
+    if (m != NULL) {
         while (1) {
-            if (m_tmp->next == NULL) break;
-            m_tmp = m_tmp->next;
-            free(m_tmp->prev); // FIXME: 要素の中身もfreeするべき
+            if (m->next == NULL) break;
+            m = m->next;
+            free(m->prev); // FIXME: 要素の中身もfreeするべき
             tailcall_methods_size_sum--;
         }
-        free(m_tmp);
+        free(m);
         tailcall_methods_size_sum--;
     }
     free(tail_frame);
 }
 
 void tcl_arg(char* ret) { // retが戻り値
-    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+    tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
 
     while (1) {
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
-        if (m_tmp != NULL) {
+        tcl_tailcall_method_t *m = f->tailcall_methods_head;
+        if (m != NULL) {
             while (1) {
-                strcat(ret, m_tmp->iseq
-                    ? calc_method_name(m_tmp->iseq)
+                strcat(ret, m->iseq
+                    ? calc_method_name(m->iseq)
                     : "_"); // ... は _ にして渡す
                 strcat(ret, "->");
-                if (m_tmp->next == NULL) { break; }
-                m_tmp = m_tmp->next;
+                if (m->next == NULL) { break; }
+                m = m->next;
             }
         }
-        strcat(ret, f_tmp->iseq ? calc_method_name(f_tmp->iseq) : "cfunc"); // FIXME: ちゃんと求める
+        strcat(ret, f->iseq ? calc_method_name(f->iseq) : "cfunc"); // FIXME: ちゃんと求める
         strcat(ret, "->");
 
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
+        if (f->next == NULL) { break; }
+        f = f->next;
     }
     ret[strlen(ret) - 1] = '\0'; // trim last `>`
     ret[strlen(ret) - 1] = '\0'; // trim last `-`
@@ -372,29 +354,29 @@ void tcl_delete(int* positions, int positions_size) {
     int index = 0;
     int position_index = 0;
     int position = positions[position_index];
-    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+    tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
 
     while (1) {
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        tcl_tailcall_method_t *m = f->tailcall_methods_head;
         while (1) {
-            if (m_tmp == NULL) { break; }
+            if (m == NULL) { break; }
             /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
 
             if (index == position) {
                 /* printf("match\n"); */
                 // delete tailcall_method
-                if (m_tmp->next == NULL && m_tmp->prev == NULL) {
-                    f_tmp->tailcall_methods_head = NULL;
-                    f_tmp->tailcall_methods_tail = NULL;
-                } else if (m_tmp->next == NULL) {
-                    m_tmp->prev->next = NULL;
-                    f_tmp->tailcall_methods_tail = m_tmp->prev;
-                } else if (m_tmp->prev == NULL) {
-                    m_tmp->next->prev = NULL;
-                    f_tmp->tailcall_methods_head = m_tmp->next;
+                if (m->next == NULL && m->prev == NULL) {
+                    f->tailcall_methods_head = NULL;
+                    f->tailcall_methods_tail = NULL;
+                } else if (m->next == NULL) {
+                    m->prev->next = NULL;
+                    f->tailcall_methods_tail = m->prev;
+                } else if (m->prev == NULL) {
+                    m->next->prev = NULL;
+                    f->tailcall_methods_head = m->next;
                 } else {
-                    m_tmp->prev->next = m_tmp->next;
-                    m_tmp->next->prev = m_tmp->prev;
+                    m->prev->next = m->next;
+                    m->next->prev = m->prev;
                 }
                 tailcall_methods_size_sum--;
                 // TODO free
@@ -403,8 +385,8 @@ void tcl_delete(int* positions, int positions_size) {
                 position = positions[position_index];
             }
             index++;
-            if (m_tmp->next == NULL) { break; }
-            m_tmp = m_tmp->next;
+            if (m->next == NULL) { break; }
+            m = m->next;
         }
         if (index == position) {
             /* printf("match (not deleted)\n"); */
@@ -413,8 +395,8 @@ void tcl_delete(int* positions, int positions_size) {
         }
         /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
         index++;
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
+        if (f->next == NULL) { break; }
+        f = f->next;
     }
 }
 
@@ -426,12 +408,12 @@ void tcl_truncate(int* positions, int positions_size, char* command) {
     int index = 0;
     int position_index = 0;
     int position = positions[position_index];
-    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+    tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
 
     while (1) {
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        tcl_tailcall_method_t *m = f->tailcall_methods_head;
         while (1) {
-            if (m_tmp == NULL) { break; }
+            if (m == NULL) { break; }
             /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
 
             if (index == position) {
@@ -444,30 +426,30 @@ void tcl_truncate(int* positions, int positions_size, char* command) {
                 tcl_tailcall_method_t *m_truncated = malloc(sizeof(tcl_tailcall_method_t));
                 *m_truncated = (tcl_tailcall_method_t) { NULL, NULL, truncated_by, 1 /* truncated_count */, NULL, NULL };
 
-                if (m_tmp->next == NULL && m_tmp->prev == NULL) {
-                    f_tmp->tailcall_methods_head = m_truncated;
-                    f_tmp->tailcall_methods_tail = m_truncated;
-                } else if (m_tmp->next == NULL) {
-                    m_tmp->prev->next = m_truncated;
-                    m_truncated->prev = m_tmp->prev;
-                    f_tmp->tailcall_methods_tail = m_truncated;
-                } else if (m_tmp->prev == NULL) {
-                    m_tmp->next->prev = m_truncated;
-                    m_truncated->next = m_tmp->next;
-                    f_tmp->tailcall_methods_head = m_truncated;
+                if (m->next == NULL && m->prev == NULL) {
+                    f->tailcall_methods_head = m_truncated;
+                    f->tailcall_methods_tail = m_truncated;
+                } else if (m->next == NULL) {
+                    m->prev->next = m_truncated;
+                    m_truncated->prev = m->prev;
+                    f->tailcall_methods_tail = m_truncated;
+                } else if (m->prev == NULL) {
+                    m->next->prev = m_truncated;
+                    m_truncated->next = m->next;
+                    f->tailcall_methods_head = m_truncated;
                 } else {
-                    m_tmp->prev->next = m_truncated;
-                    m_tmp->next->prev = m_truncated;
-                    m_truncated->next = m_tmp->next;
-                    m_truncated->prev = m_tmp->prev;
+                    m->prev->next = m_truncated;
+                    m->next->prev = m_truncated;
+                    m_truncated->next = m->next;
+                    m_truncated->prev = m->prev;
                 }
                 // update index
                 position_index++;
                 position = positions[position_index];
             }
             index++;
-            if (m_tmp->next == NULL) { break; }
-            m_tmp = m_tmp->next;
+            if (m->next == NULL) { break; }
+            m = m->next;
         }
         if (index == position) {
             /* printf("match (not deleted)\n"); */
@@ -477,8 +459,8 @@ void tcl_truncate(int* positions, int positions_size, char* command) {
 
         /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
         index++;
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
+        if (f->next == NULL) { break; }
+        f = f->next;
     }
 }
 
@@ -573,33 +555,33 @@ void tcl_apply_saved(void) {
 }
 
 void tcl_merge_same_truncated_calls() {
-    tcl_frame_t *f_tmp = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+    tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
     while (1) {
-        tcl_tailcall_method_t *m_tmp = f_tmp->tailcall_methods_head;
+        tcl_tailcall_method_t *m = f->tailcall_methods_head;
         while (1) {
-            if (m_tmp == NULL) { break; }
+            if (m == NULL) { break; }
 
-            if (m_tmp->truncated_by  &&
-                m_tmp->prev && m_tmp->prev->truncated_by &&
-                strcmp(m_tmp->truncated_by, m_tmp->prev->truncated_by) == 0) {
+            if (m->truncated_by  &&
+                m->prev && m->prev->truncated_by &&
+                strcmp(m->truncated_by, m->prev->truncated_by) == 0) {
 
-                m_tmp->truncated_count += m_tmp->prev->truncated_count;
+                m->truncated_count += m->prev->truncated_count;
                 // TODO: freeする
-                if (m_tmp->prev->prev == NULL) {
-                    f_tmp->tailcall_methods_head = m_tmp;
-                    m_tmp->prev = NULL;
+                if (m->prev->prev == NULL) {
+                    f->tailcall_methods_head = m;
+                    m->prev = NULL;
                 } else {
-                    m_tmp->prev->prev->next = m_tmp;
-                    m_tmp->prev = m_tmp->prev->prev;
+                    m->prev->prev->next = m;
+                    m->prev = m->prev->prev;
                 }
                 tailcall_methods_size_sum--;
             }
 
-            if (m_tmp->next == NULL) { break; }
-            m_tmp = m_tmp->next;
+            if (m->next == NULL) { break; }
+            m = m->next;
         }
-        if (f_tmp->next == NULL) { break; }
-        f_tmp = f_tmp->next;
+        if (f->next == NULL) { break; }
+        f = f->next;
     }
 }
 
