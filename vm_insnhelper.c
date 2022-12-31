@@ -394,19 +394,27 @@ STATIC_ASSERT(VM_ENV_DATA_INDEX_FLAGS,   VM_ENV_DATA_INDEX_FLAGS   == -0);
 
 static void
 vm_push_frame(rb_execution_context_t *ec,
-	      const rb_iseq_t *iseq,
+	      rb_iseq_t *iseq,
 	      VALUE type,
 	      VALUE self,
 	      VALUE specval,
 	      VALUE cref_or_me,
-	      const VALUE *pc,
+	      VALUE *pc,
 	      VALUE *sp,
 	      int local_size,
 	      int stack_max)
 {
-    tcl_push(iseq, pc);
-    /* tcl_print(); */
     VM_PUSH_FRAME_BODY;
+    char *cfunc = NULL;
+
+    if (RUBYVM_CFUNC_FRAME_P(ec->cfp)) {
+        rb_callable_method_entry_t *me = rb_vm_frame_method_entry(ec->cfp);
+        ID mid = me->def->original_id;
+        iseq = RUBY_VM_PREVIOUS_CONTROL_FRAME(ec->cfp)->iseq;
+        pc = RUBY_VM_PREVIOUS_CONTROL_FRAME(ec->cfp)->pc;
+        cfunc = rb_str_to_cstr(rb_id2str(mid));
+    }
+    tcl_push(iseq, pc, cfunc);
 }
 
 static void
@@ -440,7 +448,6 @@ static inline int
 vm_pop_frame(rb_execution_context_t *ec, rb_control_frame_t *cfp, const VALUE *ep)
 {
     tcl_pop();
-    /* tcl_print(); */
     VM_POP_FRAME_BODY;
 }
 
