@@ -29,7 +29,7 @@ int saved_commands_size = 0;
 
 static void log_delete(int* positions, int positions_size, bool include_log);
 static void log_truncate(int* positions, int positions_size, char* command, bool include_log);
-static void log_uniq();
+static void log_uniq(void);
 static void free_tailcall(tcl_tailcall_t *t);
 static void free_frame(tcl_frame_t *f);
 static void connect_patern_lang_server(char *send_str, char *type_addr, bool *save_addr, bool *include_log_addr, int *indexes_size_addr, int* indexes);
@@ -37,9 +37,9 @@ static void make_arguments(char* ret); // retが戻り値
 static void print_log_full(void);
 static void print_log_oneline(void);
 static void prompt(void);
-static void apply_saved(void);
 static void print_saved_commands(void);
 static void remove_saved_commands(int index);
+void apply_saved(void);
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
 void tcl_stack_pop(void);
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc);
@@ -169,7 +169,7 @@ static void log_truncate(int* positions, int positions_size, char* command, bool
     }
 }
 
-static void log_uniq() {
+static void log_uniq(void) {
     tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
     while (true) {
         tcl_tailcall_t *t = f->tailcall_head;
@@ -477,7 +477,21 @@ static void prompt(void) {
     printf("\n");
 }
 
-static void apply_saved(void) {
+static void print_saved_commands(void) {
+    for (int i = 0; i < saved_commands_size; i++) {
+        printf("        %d: "ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"\n", i + 1, saved_commands[i]);
+    }
+}
+
+static void remove_saved_commands(int index) {
+    saved_commands[index] = NULL;
+    for (int i = index + 1; i < saved_commands_size; i++) {
+        strcpy(saved_commands[i - 1], saved_commands[i]);
+    }
+    saved_commands_size--;
+}
+
+void apply_saved(void) {
     char *command;
 
     for (int i = 0; i < saved_commands_size; i++) {
@@ -511,20 +525,6 @@ static void apply_saved(void) {
         }
         log_uniq();
     }
-}
-
-static void print_saved_commands(void) {
-    for (int i = 0; i < saved_commands_size; i++) {
-        printf("        %d: "ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"\n", i + 1, saved_commands[i]);
-    }
-}
-
-static void remove_saved_commands(int index) {
-    saved_commands[index] = NULL;
-    for (int i = index + 1; i < saved_commands_size; i++) {
-        strcpy(saved_commands[i - 1], saved_commands[i]);
-    }
-    saved_commands_size--;
 }
 
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
