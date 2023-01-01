@@ -5,4 +5,4 @@ RubyVM::InstructionSequence.compile(
   file_path
 ).eval
 
-p select(Array.new(10000) { rand(10) }) { |x| x > 5 }
+p select(Array.new(10000) { rand(10) }) { |x| x >= 5 }.size
