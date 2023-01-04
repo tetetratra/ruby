@@ -1,8 +1,16 @@
-RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
-file_path = __FILE__.sub(/\.rb$/, '_tailcall.rb')
-RubyVM::InstructionSequence.compile(
-  File.open(file_path).read,
-  file_path
-).eval
+def select(arr, &b)
+  select_r(arr, [], &b)
+end
 
-p select(Array.new(10000) { rand(10) }) { |x| x >= 5 }.size
+def select_r(arr, r, &b)
+  return r if arr.empty?
+
+  if b.(arr[0])
+    select_r(arr[1..], [*r, arr[0]], &b)
+  else
+    select_r(arr[1..], r, &b)
+  end
+end
+
+arr = Array.new(10000) { rand(1000) }
+p select(arr) { |a| 1r / a }

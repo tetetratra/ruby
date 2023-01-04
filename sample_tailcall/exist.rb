@@ -1,9 +1,26 @@
-RubyVM::InstructionSequence.compile_option = { tailcall_optimization: true }
-file_path = __FILE__.sub(/\.rb$/, '_tailcall.rb')
-RubyVM::InstructionSequence.compile(
-  File.open(file_path).read,
-  file_path
-).eval
+def foo(n)
+  raise if n.zero?
+
+  if rand(100).zero?
+    rare(n-1)
+  else
+    bar(n-1)
+  end
+end
+
+def bar(n)
+  raise if n.zero?
+  baz(n-1)
+end
+
+def baz(n)
+  raise if n.zero?
+  foo(n-1)
+end
+
+def rare(n)
+  foo(n)
+end
 
 foo(300)
 
