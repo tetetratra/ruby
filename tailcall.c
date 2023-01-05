@@ -14,6 +14,8 @@
 
 #define TCL_MAX 100
 #define SAVE_MAX 100
+#define METHOD_NAME_SIZE_MAX 20 // メソッド名が20文字以上のメソッドは無いはず
+#define RUBY_STACK_MAX 20000 // Rubyの再帰呼び出しの上限は10100回程度みたいなので，余裕を持って20000回
 
 #define ESCAPE_SEQUENCES_RED    "\x1B[31;1m"
 #define ESCAPE_SEQUENCES_GREEN  "\x1B[32;1m"
@@ -229,7 +231,7 @@ static void connect_patern_lang_server(char *send_str,
     send(sock, send_str, strlen(send_str), 0);
 
     // 受信
-    char buf[TCL_MAX * 100];
+    char buf[(TCL_MAX + RUBY_STACK_MAX) * METHOD_NAME_SIZE_MAX];
     memset(&buf, 0, sizeof(buf));
     recv(sock, buf, sizeof(buf), 0);
     /* printf("buf: `%s`\n", buf); */
@@ -244,7 +246,7 @@ static void connect_patern_lang_server(char *send_str,
 
     // パース 2行目以降
     char* pos;
-    char buf2[TCL_MAX * 100]; // 同一のchar*でstrcpyすると謎にバグるから、一旦buf2にstrcpyしてからbufに戻している
+    char buf2[(TCL_MAX + RUBY_STACK_MAX) * METHOD_NAME_SIZE_MAX]; // 同一のchar*でstrcpyすると謎にバグるから、一旦buf2にstrcpyしてからbufに戻している
     if ((pos = strchr(buf, '\n')) != NULL) {
         strcpy(buf2, pos + 1);
         strcpy(buf, buf2);
@@ -442,7 +444,7 @@ static void prompt(void) {
 
         command[strlen(command) - 1] = '\0';
 
-        char argument[TCL_MAX * 100] = "";
+        char argument[(TCL_MAX + RUBY_STACK_MAX) * METHOD_NAME_SIZE_MAX] = "";
         make_arguments(argument);
         strcat(argument, "\n");
         strcat(argument, command);
@@ -452,7 +454,7 @@ static void prompt(void) {
         bool save;
         bool include_log;
         int positions_size;
-        int positions[TCL_MAX * 100];
+        int positions[TCL_MAX + RUBY_STACK_MAX];
         memset(&positions, 0, sizeof(positions));
         connect_patern_lang_server(argument, &type, &save, &include_log, &positions_size, positions);
 
@@ -519,7 +521,7 @@ void apply_saved(void) {
     for (int i = 0; i < saved_commands_size; i++) {
         command = saved_commands[i];
 
-        char argument[TCL_MAX * 100] = "";
+        char argument[(TCL_MAX + RUBY_STACK_MAX) * METHOD_NAME_SIZE_MAX] = "";
         make_arguments(argument);
         strcat(argument, "\n");
         strcat(argument, command);
@@ -529,7 +531,7 @@ void apply_saved(void) {
         bool save;
         bool include_log;
         int positions_size;
-        int positions[TCL_MAX * 100];
+        int positions[TCL_MAX + RUBY_STACK_MAX];
         memset(&positions, 0, sizeof(positions));
         connect_patern_lang_server(argument, &type, &save, &include_log, &positions_size, positions);
 
