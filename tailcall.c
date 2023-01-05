@@ -413,6 +413,28 @@ static void prompt(void) {
             }
             printf("\n");
             continue;
+        } else if (strcmp(command, "help\n") == 0) {
+            printf(
+                    "  [usage]\n"
+                    "    help     : show this help\n"
+                    "    b        : show current backtrace\n"
+                    "    bt       : show full current backtrace\n"
+                    "    ls       : show saved commands\n"
+                    "    rm [1-9] : remove saved commands of the specified number\n"
+                    "    (empty)  : resume program\n"
+                    "    (pattern expression) : show below\n"
+                    "\n"
+                    "  [pattern expression]\n"
+                    "    /(pattern)/(d,k,t)(1 or empty)(_ or empty)\n"
+                    "\n"
+                    "    descard (d) or keep (k) or truncate (t) logs matching the (pattern).\n"
+                    "    if `1` is  specified, apply the pattern only once\n"
+                    "    (otherwise, applied each time the upper limit is reached).\n"
+                    "    if `_` is specified, matching logs created by `t` will also be deleted/keeped/truncated.\n"
+                    "    range selection can be done by writing patterns side by side.\n"
+                    );
+            printf("\n");
+            continue;
         } else if (strcmp(command, "q\n") == 0) {
             printf("quit\n");
             exit(EXIT_SUCCESS);
