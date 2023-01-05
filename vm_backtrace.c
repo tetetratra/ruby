@@ -601,7 +601,9 @@ bt_update_cfunc_loc(unsigned long cfunc_counter, rb_backtrace_location_t *cfunc_
 static VALUE
 rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_frame, long num_frames, int* start_too_large, bool skip_internal)
 {
-    apply_saved();
+    if (saved_commands_size > 0) {
+        apply_saved();
+    }
 
     const rb_control_frame_t *cfp = ec->cfp;
     const rb_control_frame_t *end_cfp = RUBY_VM_END_CONTROL_FRAME(ec);

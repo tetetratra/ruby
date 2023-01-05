@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 
 #define TCL_MAX 100
+#define FRAME_MAX 2000 // Rubyのスタックの上限を，本来の10000強よりも小さく設定する
 #define SAVE_MAX 100
 #define METHOD_NAME_SIZE_MAX 20 // メソッド名が20文字以上のメソッドは無いはず
 #define RUBY_STACK_MAX 20000 // Rubyの再帰呼び出しの上限は10100回程度みたいなので，余裕を持って20000回
@@ -46,6 +47,19 @@ void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
 void tcl_stack_pop(void);
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc);
 void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc);
+
+int frame_size(void) {
+    tcl_frame_t *f = tcl_frame_head;
+    if (f == NULL) { return 0; }
+
+    int count = 0;
+    while (true) {
+        count++;
+        if (f->next == NULL) { break; }
+        f = f->next;
+    }
+    return count;
+}
 
 static char* calc_method_name(rb_iseq_t *iseq) {
     return StringValuePtr(iseq->body->location.label);
@@ -316,7 +330,7 @@ static void print_log_full(void) {
                     printf(
                             "        from "
                             ESCAPE_SEQUENCES_RED
-                            "(... %d tailcalls truncated by `%s`...)"
+                            "(... %d tailcalls truncated by `%s'...)"
                             ESCAPE_SEQUENCES_RESET"\n",
                             t->truncated_count,
                             t->truncated_by
@@ -552,6 +566,18 @@ void apply_saved(void) {
 }
 
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
+    if (frame_size() > FRAME_MAX) {
+        if (saved_commands_size > 0) {
+            apply_saved();
+        }
+        printf("current backtrace (full):\n");
+        print_log_full();
+        printf("\n");
+        printf("stack over flow occurred.\n");
+        printf("\n");
+        exit(EXIT_FAILURE);
+    }
+
     tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
     *new_frame = (tcl_frame_t) {
         iseq,

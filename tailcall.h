@@ -25,6 +25,7 @@ typedef struct tcl_frame_struct {
 
 extern tcl_frame_t *tcl_frame_tail;
 extern long tailcalls_size_sum;
+extern int saved_commands_size;
 
 void apply_saved(void);
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
