@@ -204,12 +204,17 @@ class Lisp
   end
 end
 
+# (define sum2 (lambda (n)
+#                     (if (= n 0)
+#                         0
+#                         (+ n (sum2 (- n 1))))))
+# (print (sum2 10000))
 code = <<~LISP
   (define sum (lambda (s n)
                       (if (= n 0)
                           x
                           (sum (+ s n) (- n 1)))))
-  (print (sum 0 500))
+  (print (sum 0 10000))
 LISP
 Lisp.new("(begin #{code})").run
 
