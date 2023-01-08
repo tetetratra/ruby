@@ -24,6 +24,7 @@
 #define ESCAPE_SEQUENCES_BLUE   "\x1B[34;1m"
 #define ESCAPE_SEQUENCES_RESET  "\x1B[37;m"
 
+bool enable_tailcall_log;
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 long tailcalls_size_sum = 0;
@@ -47,6 +48,7 @@ void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc);
 void tcl_stack_pop(void);
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc);
 void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc);
+void Init_tailcall(void);
 
 int frame_size(void) {
     tcl_frame_t *f = tcl_frame_head;
@@ -619,6 +621,8 @@ void tcl_stack_pop(void) {
 }
 
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
+    if (!enable_tailcall_log) { return; }
+
     if (TCL_MAX <= tailcalls_size_sum && saved_commands_size > 0) {
         apply_saved();
     }
@@ -658,3 +662,16 @@ void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc) {
     tcl_frame_tail->cfunc = cfunc;
 }
 
+void Init_tailcall(void) {
+    char* e = getenv("TCL");
+    if (e == NULL) {
+        enable_tailcall_log = true;
+    } else if (strcmp(e, "0") == 0 || strcmp(e, "false") == 0) {
+        enable_tailcall_log = false;
+    } else if (strcmp(e, "1") == 0 || strcmp(e, "true") == 0) {
+        enable_tailcall_log = true;
+    } else {
+        printf("the value of the environment variable `TCL' is invalid.");
+        exit(EXIT_FAILURE);
+    }
+}

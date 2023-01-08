@@ -3776,6 +3776,7 @@ Init_VM(void)
 
     /* vm_backtrace.c */
     Init_vm_backtrace();
+    Init_tailcall();
 }
 
 void
