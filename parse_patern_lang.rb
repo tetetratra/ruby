@@ -117,7 +117,7 @@ MACRO = {
   'RECENT' => -> _s {
     [Times.new('.', TCL_MAX/2), Doller.new] # '.{n}$'
   },
-  'BEGINNING' => -> _s {
+  'BEGIN' => -> _s {
     [Hat.new, Times.new('.', TCL_MAX/2)]
   },
   '[a-z_<>!?.]*~[a-z_<>!?.]*' => -> s {
