@@ -118,7 +118,7 @@ MACRO = {
     [Times.new('.', TCL_MAX/2), Doller.new] # '.{n}$'
   },
   'BEGINNING' => -> _s {
-    [Hat.new, Times.new('.', 3)]
+    [Hat.new, Times.new('.', TCL_MAX/2)]
   },
   '[a-z_<>!?.]*~[a-z_<>!?.]*' => -> s {
     from, to = s.split('~')
