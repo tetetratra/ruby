@@ -141,7 +141,6 @@ static void log_truncate(int* positions, int positions_size, char* command, bool
                     // replace
                     char* truncated_by = malloc(1024);
                     strcpy(truncated_by, command);
-                    truncated_by[strlen(truncated_by) - 1] = '\0'; // chop
 
                     tcl_tailcall_t *m_truncated = malloc(sizeof(tcl_tailcall_t));
                     *m_truncated = (tcl_tailcall_t) { NULL, NULL, truncated_by, 1 /* truncated_count */, NULL, NULL };
@@ -364,7 +363,7 @@ static void print_log_oneline(void) {
                 } else { // ... の場合
                     printf(
                             ESCAPE_SEQUENCES_RED
-                            "(`%s` * %d)"
+                            "(`%s' * %d)"
                             ESCAPE_SEQUENCES_RESET,
                             t->truncated_by,
                             t->truncated_count
@@ -500,7 +499,7 @@ static void prompt(void) {
             strcpy(save_command, command);
             saved_commands[saved_commands_size] = save_command;
             saved_commands_size++;
-            printf("command `"ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"` saved.\n", save_command);
+            printf("command `"ESCAPE_SEQUENCES_YELLOW"%s"ESCAPE_SEQUENCES_RESET"' saved.\n", save_command);
             printf("saved commands:\n");
             print_saved_commands();
             printf("\n");

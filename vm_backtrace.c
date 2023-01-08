@@ -442,7 +442,7 @@ location_to_str(rb_backtrace_location_t *loc)
         s = rb_str_new2(" ");
         rb_str_cat_cstr(s, ESCAPE_SEQUENCES_RED); // 赤開始
         rb_str_catf(s,
-            ESCAPE_SEQUENCES_RED"(... %d tailcalls truncated by `%s`...)"ESCAPE_SEQUENCES_RESET,
+            ESCAPE_SEQUENCES_RED"(... %d tailcalls truncated by `%s'...)"ESCAPE_SEQUENCES_RESET,
             loc->truncated_count,
             loc->truncated_by
         );
