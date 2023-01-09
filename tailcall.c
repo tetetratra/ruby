@@ -522,7 +522,7 @@ static void prompt(void) {
         if (TCL_MAX <= tailcalls_size_sum) {
             printf("still over the limit. please enter pattern expression.\n");
         } else {
-            printf("below the limit. press ENTER to resume program.\n");
+            printf("below the limit. enter `c' to continue program.\n");
         }
     }
     printf("\n");
@@ -615,7 +615,6 @@ void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
         interactive = false;
         printf("current backtrace:\n");
         print_log_oneline();
-        printf("\n");
         printf("stack is pushed by normal call.\n");
         printf("\n");
         prompt();
@@ -645,7 +644,6 @@ void tcl_stack_pop(void) {
         interactive = false;
         printf("current backtrace:\n");
         print_log_oneline();
-        printf("\n");
         printf("stack is poped by return.\n");
         printf("\n");
         prompt();
@@ -661,11 +659,11 @@ void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
     tcl_tailcall_t *new_tailcall = malloc(sizeof(tcl_tailcall_t));
     *new_tailcall = (tcl_tailcall_t) {
         iseq,
-            pc,
-            NULL, // truncated_by
-            0, // truncated_count
-            tcl_frame_tail->tailcall_tail, // prev
-            NULL // next
+        pc,
+        NULL, // truncated_by
+        0, // truncated_count
+        tcl_frame_tail->tailcall_tail, // prev
+        NULL // next
     };
 
     if (tcl_frame_tail->tailcall_head == NULL) { // if Root
@@ -689,7 +687,6 @@ void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
         interactive = false;
         printf("current backtrace:\n");
         print_log_oneline();
-        printf("\n");
         printf("stack top is updated by tailcall\n");
         printf("\n");
         prompt();
