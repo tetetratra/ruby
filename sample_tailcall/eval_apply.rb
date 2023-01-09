@@ -129,27 +129,23 @@ class Lisp
     # }
     # env_loop.(env)
 
-    def env_loop(env,
-                 var)
-      def scan(vars, vals,
-              var, env) # var, env は lambda lifting
-        if vars.empty?
-          env_loop(env[1..],
-                   var)
-        elsif var == vars.first
-          vals.first
-        else
-          scan(vars[1..], vals[1..],
-              var, env)
-        end
-      end
-      raise "Unbound variable `#{var}`" if env.empty?
-      frame = env.first
-      scan(frame.vars, frame.vals,
-          var, env)
+    env_loop(env, var)
+  end
+
+  def env_loop(env, var)
+    raise "Unbound variable `#{var}`" if env.empty?
+    frame = env.first
+    scan(frame.vars, frame.vals, var, env)
+  end
+
+  def scan(vars, vals, var, env)
+    if vars.empty?
+      env_loop(env[1..], var)
+    elsif var == vars.first
+      vals.first
+    else
+      scan(vars[1..], vals[1..], var, env)
     end
-    env_loop(env,
-             var)
   end
 
   def define_variable(var, val, env)
@@ -166,27 +162,24 @@ class Lisp
     #   end
     # }
 
-    def scan(vars, vals,
-            frame, var, val) # frame, var, val は lambda lifting
-      if vars.empty?
-        frame.vars = [var, *frame.vars] # !
-        frame.vals = [val, *frame.vals] # !
-      elsif var == vars.first
-        frame.vals = [val, *frame.vals] # !
-      else
-        scan(vars[1..], vals[1..],
-            frame, var, val)
-      end
+    scan2(frame.vars, frame.vals, frame, var, val)
+  end
+
+  def scan2(vars, vals, frame, var, val)
+    if vars.empty?
+      frame.vars = [var, *frame.vars]
+      frame.vals = [val, *frame.vals]
+    elsif var == vars.first
+      frame.vals = [val, *frame.vals]
+    else
+      scan2(vars[1..], vals[1..], frame, var, val)
     end
-    # scan.(frame.vars, frame.vals) ---------- lambda lifting 前 ----------
-    scan(frame.vars, frame.vals,
-         frame, var, val)
   end
 
   Cons = Struct.new(:car, :cdr)
   def setup_environment
     extend_environment(
-      %i[car cdr cons null? = < + - * print],
+      %i[car cdr cons null? = < > + - * print],
       [
         ->(x){x.car},
         ->(x){x.cdr},
@@ -194,6 +187,7 @@ class Lisp
         ->(x){x.nil?},
         ->(x,y){x == y},
         ->(x,y){x < y},
+        ->(x,y){x > y},
         ->(x,y){x + y},
         ->(x,y){x - y},
         ->(x,y){x * y},
@@ -204,17 +198,19 @@ class Lisp
   end
 end
 
-# (define sum2 (lambda (n)
-#                     (if (= n 0)
-#                         0
-#                         (+ n (sum2 (- n 1))))))
-# (print (sum2 10000))
 code = <<~LISP
-  (define sum (lambda (s n)
-                      (if (= n 0)
-                          x
-                          (sum (+ s n) (- n 1)))))
-  (print (sum 0 10000))
+(define sum_tc (lambda (s n)
+                    (if (= n 0)
+                        x
+                        (sum_tc (+ s n) (- n 1)))))
+(print (sum_tc 0 1000))
+
+; (define sum_nontc (lambda (n)
+;                     (if (= n 0)
+;                         0
+;                         (+ n (sum_nontc (- n 1))))))
+; (print (sum_nontc 1000))
 LISP
+
 Lisp.new("(begin #{code})").run
 
