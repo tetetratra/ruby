@@ -404,6 +404,13 @@ vm_push_frame(rb_execution_context_t *ec,
 	      int local_size,
 	      int stack_max)
 {
+    if (tcl_frame_tail) {
+        tcl_stack_change_top( // pcを更新
+            tcl_frame_tail->iseq,
+            ec->cfp->pc ? ec->cfp->pc : tcl_frame_tail->pc,
+            tcl_frame_tail->cfunc
+        );
+    }
     VM_PUSH_FRAME_BODY;
     char *cfunc = NULL;
 
@@ -2698,15 +2705,14 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
 	}
     }
 
-    tcl_stack_record(cfp->iseq, cfp->pc);
-    vm_pop_frame_without_tcl_stack_pop(ec, cfp, cfp->ep);
     char *cfunc = NULL;
     if (RUBYVM_CFUNC_FRAME_P(cfp)) {
         rb_callable_method_entry_t *me = rb_vm_frame_method_entry(cfp);
         ID mid = me->def->original_id;
         cfunc = rb_str_to_cstr(rb_id2str(mid));
     }
-    tcl_stack_change_top(iseq, cfp->pc, cfunc);
+    tcl_stack_record(cfp->iseq, cfp->pc);
+    vm_pop_frame_without_tcl_stack_pop(ec, cfp, cfp->ep);
 
     cfp = ec->cfp;
 
@@ -2726,6 +2732,7 @@ vm_call_iseq_setup_tailcall(rb_execution_context_t *ec, rb_control_frame_t *cfp,
                   iseq->body->iseq_encoded + opt_pc, sp,
                   iseq->body->local_table_size - iseq->body->param.size,
                   iseq->body->stack_max);
+    tcl_stack_change_top(iseq, iseq->body->iseq_encoded + opt_pc, cfunc);
 
     cfp->sp = sp_orig;
 
