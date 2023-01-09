@@ -404,12 +404,8 @@ vm_push_frame(rb_execution_context_t *ec,
 	      int local_size,
 	      int stack_max)
 {
-    if (tcl_frame_tail) {
-        tcl_stack_change_top( // pcを更新
-            tcl_frame_tail->iseq,
-            ec->cfp->pc ? ec->cfp->pc : tcl_frame_tail->pc,
-            tcl_frame_tail->cfunc
-        );
+    if (tcl_frame_tail && ec->cfp->pc) {
+        tcl_stack_change_top_pc(ec->cfp->pc);
     }
     VM_PUSH_FRAME_BODY;
     char *cfunc = NULL;

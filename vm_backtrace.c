@@ -657,6 +657,7 @@ rb_ec_partial_backtrace_object(const rb_execution_context_t *ec, long start_fram
                     start_frame--;
                 }
                 else if (!skip_internal || !is_internal_location(cfp)) {
+                    // raiseで挙げた例外とかは，skip_internalがtrueになって，`block in eval`みたいなバックトレースが除外される?
                     const rb_iseq_t *iseq = cfp->iseq;
                     const VALUE *pc = cfp->pc;
                     loc = &bt->backtrace[bt->backtrace_size++];
