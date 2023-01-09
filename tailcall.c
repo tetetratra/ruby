@@ -25,6 +25,7 @@
 #define ESCAPE_SEQUENCES_RESET  "\x1B[37;m"
 
 bool enable_tailcall_log;
+bool interactive = false;
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 long tailcalls_size_sum = 0;
@@ -396,10 +397,21 @@ static void prompt(void) {
         fgets(command, sizeof(command), stdin);
 
         if (strcmp(command, "\n") == 0) {
+            continue;
+        } else if (strcmp(command, "c\n") == 0) {
             if (TCL_MAX <= tailcalls_size_sum) {
                 printf("still over the limit. please enter pattern expression.\n");
                 continue;
             } else {
+                printf("continue program.\n\n");
+                return;
+            }
+        } else if (strcmp(command, "n\n") == 0) {
+            if (TCL_MAX <= tailcalls_size_sum) {
+                printf("still over the limit. please enter pattern expression.\n");
+                continue;
+            } else {
+                interactive = true;
                 return;
             }
         } else if (strcmp(command, "b\n") == 0) {
@@ -430,25 +442,25 @@ static void prompt(void) {
             }
             printf("\n");
             continue;
-        } else if (strcmp(command, "help\n") == 0) {
+        } else if (strcmp(command, "help\n") == 0 || strcmp(command, "h\n") == 0) {
             printf(
-                    "  [usage]\n"
-                    "    help     : show this help\n"
-                    "    b        : show current backtrace\n"
-                    "    bt       : show full current backtrace\n"
-                    "    ls       : show saved commands\n"
-                    "    rm [1-9] : remove saved commands of the specified number\n"
-                    "    (empty)  : resume program\n"
-                    "    (pattern expression) : show below\n"
                     "\n"
-                    "  [pattern expression]\n"
-                    "    /(pattern)/(d,k,t)(1 or empty)(_ or empty)\n"
+                    "[usage]\n"
+                    "  help     : show this help\n"
+                    "  c        : continue program\n"
+                    "  b        : show current backtrace\n"
+                    "  bt       : show full current backtrace\n"
+                    "  ls       : show saved commands\n"
+                    "  rm [1-9] : remove saved commands of the specified number\n"
+                    "  (pattern expression) : (show below)\n"
                     "\n"
-                    "    descard (d) or keep (k) or truncate (t) logs matching the (pattern).\n"
-                    "    if `1` is  specified, apply the pattern only once\n"
-                    "    (otherwise, applied each time the upper limit is reached).\n"
-                    "    if `_` is specified, matching logs created by `t` will also be deleted/keeped/truncated.\n"
-                    "    range selection can be done by writing patterns side by side.\n"
+                    "[pattern expression]\n"
+                    "  /(pattern)/(`d`,`k`,`t`)(`1` or empty)(`_` or empty)\n"
+                    "\n"
+                    "  descard (`d`) or keep (`k`) or truncate (`t`) logs matching the (pattern).\n"
+                    "  if `1` is  specified, apply the pattern only once (otherwise, applied each time the upper limit is reached).\n"
+                    "  if `_` is specified, matching logs created by `t` (displayed as `(`/foo/t' * 3)`) will also be deleted/keeped/truncated.\n"
+                    "  range selection can be done by writing patterns side by side.\n"
                     );
             printf("\n");
             continue;
@@ -598,6 +610,16 @@ void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
         tcl_frame_tail->next = new_frame;
         tcl_frame_tail = new_frame;
     }
+
+    if (interactive) {
+        interactive = false;
+        printf("current backtrace:\n");
+        print_log_oneline();
+        printf("\n");
+        printf("stack is pushed by normal call.\n");
+        printf("\n");
+        prompt();
+    }
 }
 
 void tcl_stack_pop(void) {
@@ -618,21 +640,20 @@ void tcl_stack_pop(void) {
         tailcalls_size_sum--;
     }
     free_frame(tail_frame);
+
+    if (interactive) {
+        interactive = false;
+        printf("current backtrace:\n");
+        print_log_oneline();
+        printf("\n");
+        printf("stack is poped by return.\n");
+        printf("\n");
+        prompt();
+    }
 }
 
 void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
     if (!enable_tailcall_log) { return; }
-
-    if (TCL_MAX <= tailcalls_size_sum && saved_commands_size > 0) {
-        apply_saved();
-    }
-    if (TCL_MAX <= tailcalls_size_sum) {
-        printf("log size limit reached. please enter pattern expression what logs to discard.\n\n");
-        printf("current backtrace:\n");
-        print_log_oneline();
-        printf("\n");
-        prompt();
-    }
 
     tcl_frame_tail->tailcalls_size += 1;
     tailcalls_size_sum += 1;
@@ -653,6 +674,25 @@ void tcl_stack_record(rb_iseq_t *iseq, VALUE *pc) {
     } else {
         tcl_frame_tail->tailcall_tail->next = new_tailcall;
         tcl_frame_tail->tailcall_tail = new_tailcall;
+    }
+
+    if (TCL_MAX <= tailcalls_size_sum && saved_commands_size > 0) {
+        apply_saved();
+    }
+    if (TCL_MAX <= tailcalls_size_sum) {
+        printf("log size limit reached. please enter pattern expression what logs to discard.\n\n");
+        printf("current backtrace:\n");
+        print_log_oneline();
+        printf("\n");
+        prompt();
+    } else if (interactive) {
+        interactive = false;
+        printf("current backtrace:\n");
+        print_log_oneline();
+        printf("\n");
+        printf("stack top is updated by tailcall\n");
+        printf("\n");
+        prompt();
     }
 }
 
