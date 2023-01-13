@@ -13,7 +13,6 @@
 #include <netinet/in.h>
 
 #define TCL_MAX 100
-#define FRAME_MAX 2000 // Rubyのスタックの上限を，本来の10000強よりも小さく設定する
 #define SAVE_MAX 100
 #define METHOD_NAME_SIZE_MAX 20 // メソッド名が20文字以上のメソッドは無いはず
 #define RUBY_STACK_MAX 20000 // Rubyの再帰呼び出しの上限は10100回程度みたいなので，余裕を持って20000回
@@ -39,7 +38,7 @@ static void log_uniq(void);
 static void free_tailcall(tcl_tailcall_t *t);
 static void free_frame(tcl_frame_t *f);
 static void connect_patern_lang_server(char *send_str, char *type_addr, bool *save_addr, bool *include_log_addr, int *indexes_size_addr, int* indexes);
-static void make_arguments(char* ret); // retが戻り値
+static int make_arguments(char* ret); // retが戻り値
 static void print_log_full(void);
 static void print_log_oneline(void);
 static void prompt(void);
@@ -281,8 +280,16 @@ static void connect_patern_lang_server(char *send_str,
     close(sock);
 }
 
-static void make_arguments(char* ret) { // retが戻り値
+static int make_arguments(char* ret) { // retが戻り値
     tcl_frame_t *f = tcl_frame_head->next; // <main>の前に1個あるけれど飛ばす
+
+    int shift = 0;
+    if (frame_size() > 1000) {
+        while (f->tailcall_head == NULL) {
+            f = f->next;
+            shift++;
+        }
+    }
 
     while (true) {
         tcl_tailcall_t *t = f->tailcall_head;
@@ -304,6 +311,7 @@ static void make_arguments(char* ret) { // retが戻り値
     }
     ret[strlen(ret) - 1] = '\0'; // trim last `>`
     ret[strlen(ret) - 1] = '\0'; // trim last `-`
+    return shift;
 }
 
 static void print_log_full(void) {
@@ -474,7 +482,7 @@ static void prompt(void) {
         command[strlen(command) - 1] = '\0';
 
         char argument[(TCL_MAX + RUBY_STACK_MAX) * METHOD_NAME_SIZE_MAX] = "";
-        make_arguments(argument);
+        int shift = make_arguments(argument);
         strcat(argument, "\n");
         strcat(argument, command);
         /* printf("argument: `%s`\n", argument); */
@@ -486,6 +494,7 @@ static void prompt(void) {
         int positions[TCL_MAX + RUBY_STACK_MAX];
         memset(&positions, 0, sizeof(positions));
         connect_patern_lang_server(argument, &type, &save, &include_log, &positions_size, positions);
+        for (int i = 0; i < positions_size; i++) { positions[i] += shift; }
 
         long prev_tailcalls_size_sum = tailcalls_size_sum;
         switch(type) {
@@ -551,7 +560,7 @@ void apply_saved(void) {
         command = saved_commands[i];
 
         char argument[(TCL_MAX + RUBY_STACK_MAX) * METHOD_NAME_SIZE_MAX] = "";
-        make_arguments(argument);
+        int shift = make_arguments(argument);
         strcat(argument, "\n");
         strcat(argument, command);
         /* printf("argument: `%s`\n", argument); */
@@ -563,6 +572,7 @@ void apply_saved(void) {
         int positions[TCL_MAX + RUBY_STACK_MAX];
         memset(&positions, 0, sizeof(positions));
         connect_patern_lang_server(argument, &type, &save, &include_log, &positions_size, positions);
+        for (int i = 0; i < positions_size; i++) { positions[i] += shift; }
 
         switch(type) {
             case 'd': // 消すものを受け取る
@@ -581,18 +591,6 @@ void apply_saved(void) {
 }
 
 void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
-    if (frame_size() > FRAME_MAX) {
-        if (saved_commands_size > 0) {
-            apply_saved();
-        }
-        printf("current backtrace (full):\n");
-        print_log_full();
-        printf("\n");
-        printf("stack over flow occurred.\n");
-        printf("\n");
-        exit(EXIT_FAILURE);
-    }
-
     tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
     *new_frame = (tcl_frame_t) {
         iseq,
