@@ -26,6 +26,7 @@
 
 bool enable_tailcall_log;
 bool interactive = false;
+bool interactive_by_bp = false;
 tcl_frame_t *tcl_frame_head = NULL,
             *tcl_frame_tail = NULL;
 long tailcalls_size_sum = 0;
@@ -595,13 +596,13 @@ void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
     tcl_frame_t *new_frame = (tcl_frame_t*)malloc(sizeof(tcl_frame_t));
     *new_frame = (tcl_frame_t) {
         iseq,
-            pc,
-            cfunc,
-            NULL, // tailcall_head
-            NULL, // tailcall_tail
-            0, // tailcalls_size
-            tcl_frame_tail, // prev
-            NULL // next
+        pc,
+        cfunc,
+        NULL, // tailcall_head
+        NULL, // tailcall_tail
+        0, // tailcalls_size
+        tcl_frame_tail, // prev
+        NULL // next
     };
     // push
     if (tcl_frame_tail == NULL) { // if Root
@@ -613,11 +614,12 @@ void tcl_stack_push(rb_iseq_t *iseq, VALUE *pc, char *cfunc) {
     }
 
     if (interactive) {
-        interactive = false;
         printf("current backtrace:\n");
         print_log_oneline();
         printf("stack is pushed by normal call.\n");
         printf("\n");
+        interactive = false;
+        interactive_by_bp = false;
         prompt();
     }
 }
@@ -642,11 +644,19 @@ void tcl_stack_pop(void) {
     free_frame(tail_frame);
 
     if (interactive) {
-        interactive = false;
         printf("current backtrace:\n");
         print_log_oneline();
-        printf("stack is poped by return.\n");
+        if (interactive_by_bp) {
+            printf("stop by break point at %s:%d\n",
+                    RSTRING_PTR(rb_iseq_path(tcl_frame_tail->iseq)),
+                    calc_lineno(tcl_frame_tail->iseq, tcl_frame_tail->pc)
+                    );
+        } else {
+            printf("stack is poped by return.\n");
+        }
         printf("\n");
+        interactive = false;
+        interactive_by_bp = false;
         prompt();
     }
 }
@@ -691,17 +701,26 @@ void tcl_stack_change_top(rb_iseq_t *iseq, VALUE *pc, char* cfunc) {
         printf("\n");
         prompt();
     } else if (interactive) {
-        interactive = false;
         printf("current backtrace:\n");
         print_log_oneline();
         printf("stack top is updated by tailcall\n");
         printf("\n");
+        interactive = false;
+        interactive_by_bp = false;
         prompt();
     }
 }
 
 void tcl_stack_change_top_pc(VALUE *pc) {
     tcl_frame_tail->pc = pc;
+}
+
+static VALUE rb_tcl_bp(VALUE _self) {
+    if (enable_tailcall_log) {
+        interactive = true;
+        interactive_by_bp = true;
+    }
+    return Qnil;
 }
 
 void Init_tailcall(void) {
@@ -716,4 +735,6 @@ void Init_tailcall(void) {
         printf("the value of the environment variable `TCL' is invalid.");
         exit(EXIT_FAILURE);
     }
+
+    rb_define_global_function("bp", rb_tcl_bp, 0);
 }
