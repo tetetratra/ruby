@@ -108,7 +108,7 @@ def filter(init_string, patterns)
   patterns.each_with_index.reduce([init]) do |memo, (pattern_code, i)|
     memo.flat_map do |m|
       indexes, string, skips = m.fetch_values(:indexes, :string, :skips)
-      pattern_ast = parse(pattern_code)
+      pattern_ast = parse(pattern_code, string)
       p pattern_ast if $debug
 
       pattern_bytecode = compile(pattern_ast)
@@ -128,8 +128,8 @@ def filter(init_string, patterns)
   end
 end
 
-def parse(pattern_str)
-  parsed = pattern_str.scan(%r$RECENT|~|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|@?\\?[a-z_<>!?\-]+|\+/d|\*/d|\+|\*|\(|\)|_|~$)
+def parse(pattern_str, string)
+  parsed = pattern_str.scan(%r$RECENT|~|\^|\$|[A-Z]+|(?<= )_|_(?= )|@?\\?\.|@?\\?[a-z_<>!?\-]+|\+|\*|\(|\)|_$)
   range_pattern_flag = false
   pattern = []
   until parsed.empty?
@@ -144,8 +144,15 @@ def parse(pattern_str)
                   [*pattern[0..(i-1)], after_bracket]
                 end
     when 'RECENT'
-      pattern << Times.new('.', TCL_MAX/2)
-      pattern << Doller.new
+      count = 0
+      pattern << Hat.new
+      string.take_while { |s| count += 1 unless s.start_with?('@'); count <= TCL_MAX / 2 }.each do |s|
+        pattern << Call.new(
+          s.gsub('@', ''),
+          s.start_with?('@'), # 通常の呼び出しはいずれにせよ捜査対象外なので，予めskipしておく
+          s.start_with?('@')
+        )
+      end
     when '~'
       poped = pattern.pop
       poped.skip = true
@@ -164,7 +171,7 @@ def parse(pattern_str)
       pattern << Doller.new
     else
       call = Call.new(
-        poped,
+        poped.gsub('@', ''),
         poped.start_with?('\\'),
         poped.start_with?('@')
       )
@@ -262,7 +269,7 @@ def exec(init_codes, string, from)
     case code
     when r = /^char (.*) (.*) (.*)/
       m = code.match(r)
-      pattern_method   = m[1].gsub('-', ' ').gsub('@', '')
+      pattern_method   = m[1].gsub('-', ' ')
       skip             = m[2] == 'true'
       only_normal_call = m[3] == 'true'
 

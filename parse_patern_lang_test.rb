@@ -1,6 +1,6 @@
 require_relative './parse_patern_lang.rb'
 
-tests_str = <<TESTS
+tests_str = <<"TESTS"
 x->y->a->b->a->b->z->w
 /y~z/k
 k s x 2
@@ -77,7 +77,7 @@ t s x 2
 ---
 @block in eval->eval->apply->eval->@eval->@map->@block in eval->eval->apply->eval->@eval->@map
 /block-in-eval~@eval/d
-d s x 5
+d s x 6
 1
 2
 3
@@ -94,6 +94,11 @@ d s x 6
 7
 8
 9
+---
+#{(["a->b->@c->@d->@e"] * 50).join('->')}
+/RECENT/d
+d s x 50
+#{25.times.flat_map { |i| [i*5, i*5+1] }.join("\n")}
 TESTS
 
 tests = tests_str.split(/^---.*\n/).map do |test_str|
