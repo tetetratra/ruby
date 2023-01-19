@@ -1,5 +1,21 @@
 TCL_MAX = 100
 
+class Call
+  attr_accessor :name, :skip, :only_normal_call
+
+  def initialize(name, skip, only_normal_call)
+    @name = name
+    @skip = skip
+    @only_normal_call = only_normal_call
+  end
+
+  def inspect
+    (skip ? '\\' : '')
+    + (only_normal_call ? '@' : '')
+    + name
+  end
+end
+
 Plus = Struct.new(:body) do
   def inspect
     "#{body.inspect}+"
@@ -7,6 +23,12 @@ Plus = Struct.new(:body) do
 end
 
 Mul = Struct.new(:body) do
+  def inspect
+    "#{body.inspect}*"
+  end
+end
+
+MulShort = Struct.new(:body) do
   def inspect
     "#{body.inspect}*"
   end
@@ -27,12 +49,6 @@ end
 Doller = Struct.new(:_) do
   def inspect
     '$'
-  end
-end
-
-BackRef = Struct.new(:body) do
-  def inspect
-    "\\#{body}"
   end
 end
 
@@ -98,8 +114,7 @@ def filter(init_string, patterns)
       pattern_bytecode = compile(pattern_ast)
       p pattern_bytecode if $debug
 
-      is_last_pattern = patterns.size == i + 1
-      scan(pattern_bytecode, string, is_last_pattern).map do |last_vm|
+      scan(pattern_bytecode, string).map do |last_vm|
         range = last_vm[:sp_from]..last_vm[:sp]
         new_skips = last_vm[:skips].map { |i| i + indexes.first }
         {
@@ -113,24 +128,9 @@ def filter(init_string, patterns)
   end
 end
 
-MACRO = {
-  'RECENT' => -> _s {
-    [Times.new('.', TCL_MAX/2), Doller.new] # '.{n}$'
-  },
-  'BEGIN' => -> _s {
-    [Hat.new, Times.new('.', TCL_MAX/2)]
-  },
-  '[a-z_<>!?.]*~[a-z_<>!?.]*' => -> s {
-    from, to = s.split('~')
-    from = '.' if from.nil? || from.empty?
-    to = '.' if to.nil? || to.empty?
-    ["\\#{from}", Mul.new('.'), "\\#{to}"] # '\from.*\to'
-  }
-}
-
 def parse(pattern_str)
-  macro_regex = MACRO.keys.join('|')
-  parsed = pattern_str.scan(%r@#{macro_regex}|\\\d|{\d+}|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|\\?[a-z_<>!?]+|\+/d|\*/d|\+|\*|\(|\)|_|~@)
+  parsed = pattern_str.scan(%r$RECENT|~|\^|\$|\.|[A-Z]+|(?<= )_|_(?= )|@?\\?[a-z_<>!?\-]+|\+/d|\*/d|\+|\*|\(|\)|_|~$)
+  range_pattern_flag = false
   pattern = []
   until parsed.empty?
     poped = parsed.shift
@@ -143,45 +143,45 @@ def parse(pattern_str)
                 else
                   [*pattern[0..(i-1)], after_bracket]
                 end
+    when 'RECENT'
+      pattern << Times.new('.', TCL_MAX/2)
+      pattern << Doller.new
+    when '~'
+      poped = pattern.pop
+      poped.skip = true
+      pattern << poped
+
+      pattern << MulShort.new(Call.new('.', false, false))
+
+      range_pattern_flag = true
     when '+'
       pattern << Plus.new(pattern.pop)
     when '*'
       pattern << Mul.new(pattern.pop)
-    when /{(\d+)}/
-      pattern << Times.new(pattern.pop, $1.to_i)
     when '^'
       pattern << Hat.new
     when '$'
       pattern << Doller.new
-    when /\\(\d)/
-      pattern << BackRef.new($1.to_i)
     else
-      if matched_macro = MACRO.find { |(regex, _replace)| Regexp.new(regex).match?(poped) }
-        pattern.concat matched_macro[1].call(poped)
-      else
-        pattern << poped
-      end
+      call = Call.new(
+        poped,
+        poped.start_with?('\\'),
+        poped.start_with?('@')
+      )
+      call.skip = true if range_pattern_flag
+      pattern << call
     end
   end
   pattern
 end
 
 def compile(pattern)
-  refi = -1 # ref_to 0 は実行中は現れない(matchが先にくるので)
-
   compile_r = ->(pat) do
     case pat
-    when String
-      ["char #{pat}"]
+    when Call
+      ["char #{pat.name} #{pat.skip} #{pat.only_normal_call}"]
     when Array
-      refi += 1
-      [
-        refi.zero? ? nil : "ref_from #{refi}",
-        *pat.map { |p| compile_r.(p) }.flatten(1),
-        refi.zero? ? nil : "ref_to #{refi}",
-      ].compact
-    when BackRef
-      ["backref #{pat.body}"]
+      pat.map { |p| compile_r.(p) }.flatten(1)
     when Plus
       compiled = compile_r.(pat.body)
       [
@@ -197,6 +197,13 @@ def compile(pattern)
         *compiled,
         "jump #{-compiled.size - 1}"
       ]
+    when MulShort # 最短一致
+      compiled = compile_r.(pat.body)
+      [
+        "split #{compiled.size + 2} 1",
+        *compiled,
+        "jump #{-compiled.size - 1}"
+      ]
     when Times
       compile_r.(pat.body) * pat.times
     when Hat
@@ -208,11 +215,11 @@ def compile(pattern)
   [*compile_r.(pattern), 'match']
 end
 
-def scan(code, string, is_last_pattern)
+def scan(code, string)
   from = 0
   arr = []
   loop do
-    last_vm = exec(code, string, from, is_last_pattern)
+    last_vm = exec(code, string, from)
     break if last_vm.nil?
 
     range = last_vm[:sp_from]..last_vm[:sp]
@@ -228,7 +235,7 @@ def scan(code, string, is_last_pattern)
   arr.compact
 end
 
-def exec(init_codes, string, from, is_last_pattern)
+def exec(init_codes, string, from)
   # sp: 0,1,2... から始めることで、前方部分一致をサポート
   init_frames = (from..(string.size - 1)).map do |i|
     { codes: init_codes, sp: i, pc: 0, sp_from: i, skips: [] }
@@ -253,19 +260,24 @@ def exec(init_codes, string, from, is_last_pattern)
     end
 
     case code
-    when /^char (.*)/
-      method = string[sp]
-      p method if $debug
-      next frames_tail if method.nil?
+    when r = /^char (.*) (.*) (.*)/
+      m = code.match(r)
+      pattern_method   = m[1].gsub('-', ' ').gsub('@', '')
+      skip             = m[2] == 'true'
+      only_normal_call = m[3] == 'true'
 
-      c = $1
-      next_skips = skips.dup
-      if c.start_with?('\\')
-        c = c.sub('\\', '')
-        next_skips << sp
+      bt_method = string[sp]
+      p bt_method if $debug
+      next frames_tail if bt_method.nil?
+
+      bt_method_is_normal_call = false
+      if bt_method.start_with?('@')
+        bt_method = bt_method.sub('@', '')
+        bt_method_is_normal_call = true
       end
 
-      if method == c || c == '.'
+      next_skips = [*skips, skip ? sp : nil].compact
+      if (bt_method == pattern_method || pattern_method == '.') && (bt_method_is_normal_call || !only_normal_call)
         next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: next_skips }]
       else
         next frames_tail
@@ -294,45 +306,6 @@ def exec(init_codes, string, from, is_last_pattern)
     when /^jump (-?\d+)/
       j = $1.to_i
       next [*frames_tail, { **f, pc: pc + j }]
-    when /^ref_from (\d)/
-      next [*frames_tail, { **f, pc: pc + 1, "ref_from_#{$1}": sp }]
-    when /^ref_to (\d)/
-      next [*frames_tail, { **f, pc: pc + 1, "ref_to_#{$1}": sp - 1 }]
-    when /^backref (\d)/
-      chars = string[f[:"ref_from_#{$1}"]..f[:"ref_to_#{$1}"]]
-      # jumpで戻ってくる時の位置の計算が合うように、charの連続ではなく1個のcharsに置き換えている
-      next [
-        *frames_tail, {
-          **f,
-          pc: pc,
-          codes: [
-            *codes[0..(pc-1)],
-            "chars #{chars.join(' ')}",
-            *codes[(pc+1)..-1]
-          ]
-        }
-      ]
-    when /chars (.*)/
-      chars = $1.split.map { |c| c.sub('\\', '') }
-      methods = string[sp..-1].take(chars.size).compact
-      next frames_tail if methods.size < chars.size
-
-      add_skips = []
-      methods = methods.map.with_index do |method, i|
-        if method.start_with?('\\')
-          add_skips << sp + i
-          method.sub('\\', '')
-        else
-          method
-        end
-      end
-
-      if chars == methods
-        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: [*skips, *add_skips] }]
-      else
-        next frames_tail
-      end
-
     when /^match/
       break { **f, sp: sp - 1 }
     end
