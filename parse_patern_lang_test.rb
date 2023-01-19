@@ -1,5 +1,4 @@
 require_relative './parse_patern_lang.rb'
-# $debug = true
 
 tests_str = <<TESTS
 x->y->a->b->a->b->z->w
@@ -21,34 +20,12 @@ d s x 3
 1
 2
 ---
-x->o->_->_->o->_->o->y
+x->o->_->_->_->o->y
 /o~o/_/d_
 d s _ 3
 2
 3
-5
----
-main->cfunc->top->o->_->o->_->o->_->o->_->o->_->i
-/o~o/o/d1
-d 1 x 3
-5
-7
-9
----
-main->cfunc->top->o->_->o->_->o->_->o->_->o->_->i
-/o~o/o/t_1
-t 1 _ 3
-5
-7
-9
----
-main->cfunc->top->o->_->o->_->o->_->o->_->o->_->i
-/o~o/o/k_
-k s _ 4
 4
-6
-8
-10
 ---
 <main>->cfunc-><top (required)>->run->eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->scan
 /scan/d
@@ -92,18 +69,31 @@ t s _ 2
 1
 2
 ---
-a->b->a->b->a->b->a
-/b~b/b/t
-t s x 1
-3
+a->b->a->b->a->b->a->b->b
+/b~b/a/t
+t s x 2
+2
+6
 ---
-a->b->a->b->a->b->a
-/b~./t_1
-t 1 _ 4
+@block in eval->eval->apply->eval->@eval->@map->@block in eval->eval->apply->eval->@eval->@map
+/block-in-eval~@eval/d
+d s x 5
+1
 2
 3
-4
-5
+7
+8
+9
+---
+@block in eval->eval->apply->eval->@eval->@map->@block in eval->eval->apply->eval->@eval->@map
+/block-in-eval~@eval/eval apply eval/d
+d s x 6
+1
+2
+3
+7
+8
+9
 TESTS
 
 tests = tests_str.split(/^---.*\n/).map do |test_str|
@@ -113,15 +103,31 @@ tests = tests_str.split(/^---.*\n/).map do |test_str|
   [backtrace, pattern, expect]
 end
 
+require 'stringio'
+pass_cnt = 0
+$debug = true
+
 tests.each do |(bt, pat, exp)|
+  stdout_old = $stdout.dup
+  $stdout = StringIO.new
   result = run(bt, pat).chomp
-  unless result == exp.chomp
-    puts "bt: #{bt}"
-    puts "pat: #{pat}"
+  debug_info = $stdout.string
+  $stdout = stdout_old
+
+  if result == exp.chomp
+    pass_cnt += 1
+  else
+    puts debug_info
+    puts '---'
+    puts "backtrace: #{bt}"
+    puts "pattern: #{pat}"
     puts '--- expect ---'
     puts exp
-    puts '--- actural ---'
+    puts '--- actual ---'
     puts result
     puts '-' * 50
+    puts "passed #{pass_cnt} tests."
+    exit
   end
 end
+puts "passed all tests."
