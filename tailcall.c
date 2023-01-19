@@ -14,7 +14,7 @@
 
 #define TCL_MAX 100
 #define SAVE_MAX 100
-#define METHOD_NAME_SIZE_MAX 20 // メソッド名が20文字以上のメソッドは無いはず
+#define METHOD_NAME_SIZE_MAX 20 // メソッド名が平均して20文字以上になることは無いはず
 #define RUBY_STACK_MAX 20000 // Rubyの再帰呼び出しの上限は10100回程度みたいなので，余裕を持って20000回
 
 #define ESCAPE_SEQUENCES_RED    "\x1B[31;1m"
@@ -303,7 +303,8 @@ static int make_arguments(char* ret) { // retが戻り値
                 t = t->next;
             }
         }
-        strcat(ret, f->iseq ? calc_method_name(f->iseq) : "cfunc"); // FIXME: ちゃんと求める
+        strcat(ret, "@");
+        strcat(ret, f->cfunc ? f->cfunc : calc_method_name(f->iseq));
         strcat(ret, "->");
 
         if (f->next == NULL) { break; }
@@ -450,28 +451,6 @@ static void prompt(void) {
             } else {
                 printf("invalid number.\n");
             }
-            printf("\n");
-            continue;
-        } else if (strcmp(command, "help\n") == 0 || strcmp(command, "h\n") == 0) {
-            printf(
-                    "\n"
-                    "[usage]\n"
-                    "  help     : show this help\n"
-                    "  c        : continue program\n"
-                    "  b        : show current backtrace\n"
-                    "  bt       : show full current backtrace\n"
-                    "  ls       : show saved commands\n"
-                    "  rm [1-9] : remove saved commands of the specified number\n"
-                    "  (pattern expression) : (show below)\n"
-                    "\n"
-                    "[pattern expression]\n"
-                    "  /(pattern)/(`d`,`k`,`t`)(`1` or empty)(`_` or empty)\n"
-                    "\n"
-                    "  descard (`d`) or keep (`k`) or truncate (`t`) logs matching the (pattern).\n"
-                    "  if `1` is  specified, apply the pattern only once (otherwise, applied each time the upper limit is reached).\n"
-                    "  if `_` is specified, matching logs created by `t` (displayed as `(`/foo/t' * 3)`) will also be deleted/keeped/truncated.\n"
-                    "  range selection can be done by writing patterns side by side.\n"
-                    );
             printf("\n");
             continue;
         } else if (strcmp(command, "q\n") == 0) {
