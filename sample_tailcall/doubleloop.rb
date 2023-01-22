@@ -1,20 +1,16 @@
-def o(n)
-  if n == 300
-    puts 'FINISH'
+def outer(n)
+  return 'finish' if n.zero?
+  bp
+  inner(n, 10000)
+end
+
+def inner(n, m)
+  if m.zero?
+    outer(n - 1)
   else
-    i(n, 1)
+    inner(n, m - 1)
   end
 end
 
-def i(n, m)
-  raise if n == 123 && m == 456
-
-  if m == 500
-    o(n + 1)
-  else
-    i(n, m + 1)
-  end
-end
-
-o(1)
+puts outer(10)
 

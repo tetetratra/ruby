@@ -1,5 +1,9 @@
 class Lisp
-  Function = Struct.new(:parameters, :body, :env)
+  Function = Struct.new(:parameters, :body, :env) do
+    def inspect
+      "#<Lisp::Function parameters=#{parameters} body=#{body}>"
+    end
+  end
 
   Frame = Struct.new(:vars, :vals)
 
@@ -45,6 +49,27 @@ class Lisp
     parsed.first
   end
 
+  Cons = Struct.new(:car, :cdr)
+  def setup_environment
+    extend_environment(
+      %i[car cdr cons null? = < > + - * print],
+      [
+        ->(x){x.car},
+        ->(x){x.cdr},
+        ->(x,y){Cons.new(x,y)},
+        ->(x){x.nil?},
+        ->(x,y){x == y},
+        ->(x,y){x < y},
+        ->(x,y){x > y},
+        ->(x,y){x + y},
+        ->(x,y){x - y},
+        ->(x,y){x * y},
+        ->(x){puts x}
+      ],
+      []
+    )
+  end
+
   def eval(exp, env)
     case exp
     in Integer
@@ -64,14 +89,11 @@ class Lisp
       )
     in [:lambda, Array => parameters, body]
       Function.new(parameters, body, env)
-    in [:if, cond_body, then_body, *_else_body]
-      else_body = _else_body[0]
+    in [:if, cond_body, then_body, else_body]
       if eval(cond_body, env)
         eval(then_body, env)
-      elsif else_body
+      else
         eval(else_body, env)
-      else # else句が無い場合
-        false
       end
     in [:begin, *rest]
       if rest.size == 1
@@ -175,41 +197,20 @@ class Lisp
       scan2(vars[1..], vals[1..], frame, var, val)
     end
   end
-
-  Cons = Struct.new(:car, :cdr)
-  def setup_environment
-    extend_environment(
-      %i[car cdr cons null? = < > + - * print],
-      [
-        ->(x){x.car},
-        ->(x){x.cdr},
-        ->(x,y){Cons.new(x,y)},
-        ->(x){x.nil?},
-        ->(x,y){x == y},
-        ->(x,y){x < y},
-        ->(x,y){x > y},
-        ->(x,y){x + y},
-        ->(x,y){x - y},
-        ->(x,y){x * y},
-        ->(x){puts x}
-      ],
-      []
-    )
-  end
 end
 
 code = <<~LISP
-(define sum_tc (lambda (s n)
-                    (if (= n 0)
-                        x
-                        (sum_tc (+ s n) (- n 1)))))
-(print (sum_tc 0 1000))
-
-; (define sum_nontc (lambda (n)
+; (define sum_tc (lambda (s n)
 ;                     (if (= n 0)
-;                         0
-;                         (+ n (sum_nontc (- n 1))))))
-; (print (sum_nontc 1000))
+;                         s
+;                         (sum_tc (+ s n) (- n 1)))))
+; (print (sum_tc 0 10000))
+
+(define sum_ntc (lambda (n)
+                    (if (= n 0)
+                        0
+                        (+ n (sum_ntc (- n 1))))))
+(print (sum_ntc 10000))
 LISP
 
 Lisp.new("(begin #{code})").run

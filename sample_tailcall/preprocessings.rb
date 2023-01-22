@@ -49,7 +49,7 @@ def wc(string, count)
 end
 
 def receive(request)
-  raise 'unknown error'
+  puts caller_locations(0) # バックトレースを表示
 end
 
 send("Hello\nWorld Wide Web." * 1000, [:replace_newline, :word_count, :add_time])
