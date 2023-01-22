@@ -1,18 +1,26 @@
 TCL_MAX = 100
 
 class Call
-  attr_accessor :name, :skip, :only_normal_call
+  attr_accessor :name, :skip, :call_type
 
-  def initialize(name, skip, only_normal_call)
-    @name = name
-    @skip = skip
-    @only_normal_call = only_normal_call
+  def initialize(name)
+    @name = name.gsub(/^\\/, '').gsub(/-$/, '').gsub(/=$/, '')
+    @skip = name.start_with?('\\')
+    @call_type = case name
+                 when /-$/ then :normal_call
+                 when /=$/ then :tailcall
+                 else            :all_call
+                 end
   end
 
   def inspect
-    (skip ? '\\' : '')
-    + (only_normal_call ? '@' : '')
-    + name
+    (skip ? '\\' : '') +
+      name +
+      case call_type
+      when :normal_call then '->'
+      when :tailcall then '=>'
+      when :all_call then ''
+      end
   end
 end
 
@@ -30,7 +38,7 @@ end
 
 MulShort = Struct.new(:body) do
   def inspect
-    "#{body.inspect}*"
+    "#{body.inspect}*?"
   end
 end
 
@@ -59,7 +67,7 @@ class Range
 end
 
 def run(string_raw, pattern_exp)
-  string = string_raw.split('->')
+  string = string_raw.split(/(?<==>)|(?<=->)/)
 
   p string if $debug
   _, *patterns, command = pattern_exp.split('/')
@@ -114,14 +122,16 @@ def filter(init_string, patterns)
       pattern_bytecode = compile(pattern_ast)
       p pattern_bytecode if $debug
 
-      scan(pattern_bytecode, string).map do |last_vm|
+      last_vms = scan(pattern_bytecode, string)
+      last_vms.map do |last_vm|
         range = last_vm[:sp_from]..last_vm[:sp]
         new_skips = last_vm[:skips].map { |i| i + indexes.first }
+        new_includes = last_vm[:includes].map { |i| i + indexes.first }
         {
           indexes: range.map { |i| i + indexes.first },
           indexes_for: indexes, # 前回のindexes
           string: string[range],
-          skips: [*skips, *new_skips]
+          skips: [*(skips - new_includes), *new_skips]
         }
       end
     end
@@ -129,7 +139,18 @@ def filter(init_string, patterns)
 end
 
 def parse(pattern_str, string)
-  parsed = pattern_str.scan(%r$RECENT|~|\^|\$|[A-Z]+|(?<= )_|_(?= )|@?\\?\.|@?\\?[a-z_<>!?\-]+|\+|\*|\(|\)|_$)
+  regex = <<~'REGEX'.lines.map(&:chomp).join('|').yield_self { |s| Regexp.new(s) }
+    (RECENT)
+    (~)
+    (?<= )(_)
+    (_)(?= )
+    (\\)?(\.)(=|-)?
+    (\\)?([a-z0-9_!?\-]+)(=|-)?
+    (\+)
+    (\*)
+    (_)
+  REGEX
+  parsed = pattern_str.scan(regex).map(&:join)
   range_pattern_flag = false
   pattern = []
   until parsed.empty?
@@ -145,20 +166,20 @@ def parse(pattern_str, string)
                 end
     when 'RECENT'
       count = 0
-      pattern << Hat.new
-      string.take_while { |s| count += 1 unless s.start_with?('@'); count <= TCL_MAX / 2 }.each do |s|
+      string_recent = string.reverse.take_while { |s| count += 1 if s.end_with?('=>'); count <= TCL_MAX / 2 }.reverse
+      string_recent.each do |s|
         pattern << Call.new(
-          s.gsub('@', ''),
-          s.start_with?('@'), # 通常の呼び出しはいずれにせよ捜査対象外なので，予めskipしておく
-          s.start_with?('@')
+          (s.end_with?('=>') ? '' : '\\') +
+          s.gsub(/>$/, '')
         )
       end
+      pattern << Doller.new
     when '~'
       poped = pattern.pop
       poped.skip = true
       pattern << poped
 
-      pattern << MulShort.new(Call.new('.', false, false))
+      pattern << MulShort.new(Call.new('.'))
 
       range_pattern_flag = true
     when '+'
@@ -170,11 +191,7 @@ def parse(pattern_str, string)
     when '$'
       pattern << Doller.new
     else
-      call = Call.new(
-        poped.gsub('@', ''),
-        poped.start_with?('\\'),
-        poped.start_with?('@')
-      )
+      call = Call.new(poped)
       call.skip = true if range_pattern_flag
       pattern << call
     end
@@ -186,7 +203,7 @@ def compile(pattern)
   compile_r = ->(pat) do
     case pat
     when Call
-      ["char #{pat.name} #{pat.skip} #{pat.only_normal_call}"]
+      ["char #{pat.name} #{pat.skip} #{pat.call_type}"]
     when Array
       pat.map { |p| compile_r.(p) }.flatten(1)
     when Plus
@@ -269,23 +286,40 @@ def exec(init_codes, string, from)
     case code
     when r = /^char (.*) (.*) (.*)/
       m = code.match(r)
-      pattern_method   = m[1].gsub('-', ' ')
-      skip             = m[2] == 'true'
-      only_normal_call = m[3] == 'true'
+      pattern_method    = m[1].gsub('-', ' ')
+      pattern_call_type = m[3].to_sym
 
       bt_method = string[sp]
       p bt_method if $debug
       next frames_tail if bt_method.nil?
 
-      bt_method_is_normal_call = false
-      if bt_method.start_with?('@')
-        bt_method = bt_method.sub('@', '')
-        bt_method_is_normal_call = true
-      end
+      (
+        bt_method_raw,
+        bt_method_call_type
+      ) = case bt_method
+          when /->$/
+            [bt_method.sub(/->$/, ''), :normal_call]
+          when /=>$/
+            [bt_method.sub(/=>$/, ''), :tailcall]
+          else # current call の場合
+            [bt_method, :normal_call]
+          end
 
+      call_type_match = case [pattern_call_type, bt_method_call_type]
+                        when [:normal_call, :normal_call] then true
+                        when [:normal_call, :tailcall]    then false
+                        when [:tailcall,    :normal_call] then false
+                        when [:tailcall,    :tailcall]    then true
+                        when [:all_call,    :normal_call] then true
+                        when [:all_call,    :tailcall]    then true
+                        end
+
+      skip = (m[2] == 'true') ||
+             (pattern_method == '.' && bt_method_raw == '_')
       next_skips = [*skips, skip ? sp : nil].compact
-      if (bt_method == pattern_method || pattern_method == '.') && (bt_method_is_normal_call || !only_normal_call)
-        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: next_skips }]
+      includes = (pattern_method == '_' && bt_method_raw == '_') ? [sp] : []
+      if (bt_method_raw == pattern_method || pattern_method == '.') && call_type_match
+        next [*frames_tail, { **f, sp: sp + 1, pc: pc + 1, skips: next_skips, includes: includes }]
       else
         next frames_tail
       end

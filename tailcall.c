@@ -298,12 +298,11 @@ static int make_arguments(char* ret) { // retが戻り値
                 strcat(ret, t->iseq
                         ? calc_method_name(t->iseq)
                         : "_"); // ... は _ にして渡す
-                strcat(ret, "->");
+                strcat(ret, "=>");
                 if (t->next == NULL) { break; }
                 t = t->next;
             }
         }
-        strcat(ret, "@");
         strcat(ret, f->cfunc ? f->cfunc : calc_method_name(f->iseq));
         strcat(ret, "->");
 

@@ -1,33 +1,43 @@
 require_relative './parse_patern_lang.rb'
 
+# RECENT のテストケースがランダムな並びなのは，繰り返しを渡すとマッチの際の計算量が肥大化してしまうため
 tests_str = <<"TESTS"
-x->y->a->b->a->b->z->w
+#{Array.new(50) { ["a#{rand(10)}", '=>', "b#{rand(10)}", '=>', "c#{rand(10)}", '->', "d#{rand(10)}", '->', "e#{rand(10)}"].join }.join('->')}
+/RECENT/d
+d s x 50
+#{25.times.flat_map { |i| [i*5 + 125, i*5 + 126] }.join("\n")}
+---
+x=>y=>a=>b=>a=>b=>z=>w
 /y~z/k
 k s x 2
 0
 7
 ---
-x->y->a->b->a->b->z->w
+x=>y=>a=>b=>a=>b=>z=>w
 /y~z/a/k
 k s x 2
 3
 5
 ---
-a->_->b
+a=>_=>b
 /./d
-d s x 3
+d s x 2
 0
-1
 2
 ---
-x->o->_->_->_->o->y
-/o~o/_/d_
-d s _ 3
+a=>_=>b
+/_/d
+d s x 1
+1
+---
+x=>o=>_=>_=>_=>o=>y
+/o~o/_/d
+d s x 3
 2
 3
 4
 ---
-<main>->cfunc-><top (required)>->run->eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->scan
+<main>=>cfunc=><top (required)>=>run=>eval=>eval=>define_variable=>scan=>scan=>scan=>scan=>scan=>scan=>scan=>scan
 /scan/d
 d s x 8
 7
@@ -39,7 +49,7 @@ d s x 8
 13
 14
 ---
-<main>->cfunc-><top (required)>->run->eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->scan
+<main>=>cfunc=><top (required)>=>run=>eval=>eval=>define_variable=>scan=>scan=>scan=>scan=>scan=>scan=>scan=>scan
 /scan+/t
 t s x 8
 7
@@ -51,7 +61,7 @@ t s x 8
 13
 14
 ---
-<main>->cfunc-><top (required)>->run->eval->eval->define_variable->scan->scan->scan->scan->scan->scan->scan->scan
+<main>=>cfunc=><top (required)>=>run=>eval=>eval=>define_variable=>scan=>scan=>scan=>scan=>scan=>scan=>scan=>scan
 /scan/t
 t s x 8
 7
@@ -63,20 +73,20 @@ t s x 8
 13
 14
 ---
-f->_->_->g
+f=>_=>_=>g
 /_+/t_
 t s _ 2
 1
 2
 ---
-a->b->a->b->a->b->a->b->b
+a=>b=>a=>b=>a=>b=>a=>b=>b
 /b~b/a/t
 t s x 2
 2
 6
 ---
-@block in eval->eval->apply->eval->@eval->@map->@block in eval->eval->apply->eval->@eval->@map
-/block-in-eval~@eval/d
+block in eval->eval=>apply=>eval=>eval->map->block in eval->eval=>apply=>eval=>eval->map
+/block-in-eval~eval-/d
 d s x 6
 1
 2
@@ -85,8 +95,8 @@ d s x 6
 8
 9
 ---
-@block in eval->eval->apply->eval->@eval->@map->@block in eval->eval->apply->eval->@eval->@map
-/block-in-eval~@eval/eval apply eval/d
+block in eval->eval=>apply=>eval=>eval->map->block in eval->eval=>apply=>eval=>eval->map
+/block-in-eval~eval-/eval apply eval/d
 d s x 6
 1
 2
@@ -94,11 +104,6 @@ d s x 6
 7
 8
 9
----
-#{(["a->b->@c->@d->@e"] * 50).join('->')}
-/RECENT/d
-d s x 50
-#{25.times.flat_map { |i| [i*5, i*5+1] }.join("\n")}
 TESTS
 
 tests = tests_str.split(/^---.*\n/).map do |test_str|
