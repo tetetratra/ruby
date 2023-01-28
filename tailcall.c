@@ -32,12 +32,12 @@ long tailcalls_size_sum = 0;
 char *saved_commands[SAVE_MAX];
 int saved_commands_size = 0;
 
-static void log_delete(int* positions, int positions_size, bool include_log);
-static void log_truncate(int* positions, int positions_size, char* command, bool include_log);
+static void log_delete(int* positions, int positions_size);
+static void log_truncate(int* positions, int positions_size, char* command);
 static void log_uniq(void);
 static void free_tailcall(tcl_tailcall_t *t);
 static void free_frame(tcl_frame_t *f);
-static void connect_patern_lang_server(char *send_str, char *type_addr, bool *save_addr, bool *include_log_addr, int *indexes_size_addr, int* indexes);
+static void connect_patern_lang_server(char *send_str, char *type_addr, bool *save_addr, int *indexes_size_addr, int* indexes);
 static int make_arguments(char* ret); // retが戻り値
 static void print_log_full(void);
 static void print_log_oneline(void);
@@ -69,7 +69,7 @@ static char* calc_method_name(rb_iseq_t *iseq) {
     return StringValuePtr(iseq->body->location.label);
 }
 
-static void log_delete(int* positions, int positions_size, bool include_log) {
+static void log_delete(int* positions, int positions_size) {
     if (positions_size == 0) { return; }
 
     int index = 0;
@@ -83,27 +83,24 @@ static void log_delete(int* positions, int positions_size, bool include_log) {
             if (t == NULL) { break; }
             /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
 
-            bool is_normal = t->truncated_by == NULL;
             if (index == position) {
                 /* printf("match\n"); */
-                if (include_log || is_normal) {
-                    // delete tailcall
-                    if (t->next == NULL && t->prev == NULL) {
-                        f->tailcall_head = NULL;
-                        f->tailcall_tail = NULL;
-                    } else if (t->next == NULL) {
-                        t->prev->next = NULL;
-                        f->tailcall_tail = t->prev;
-                    } else if (t->prev == NULL) {
-                        t->next->prev = NULL;
-                        f->tailcall_head = t->next;
-                    } else {
-                        t->prev->next = t->next;
-                        t->next->prev = t->prev;
-                    }
-                    tailcalls_size_sum--;
-                    free_tailcall(t);
+                // delete tailcall
+                if (t->next == NULL && t->prev == NULL) {
+                    f->tailcall_head = NULL;
+                    f->tailcall_tail = NULL;
+                } else if (t->next == NULL) {
+                    t->prev->next = NULL;
+                    f->tailcall_tail = t->prev;
+                } else if (t->prev == NULL) {
+                    t->next->prev = NULL;
+                    f->tailcall_head = t->next;
+                } else {
+                    t->prev->next = t->next;
+                    t->next->prev = t->prev;
                 }
+                tailcalls_size_sum--;
+                free_tailcall(t);
                 // update index
                 position_index++;
                 position = positions[position_index];
@@ -124,7 +121,7 @@ static void log_delete(int* positions, int positions_size, bool include_log) {
     }
 }
 
-static void log_truncate(int* positions, int positions_size, char* command, bool include_log) {
+static void log_truncate(int* positions, int positions_size, char* command) {
     if (positions_size == 0) { return; }
 
     int index = 0;
@@ -138,34 +135,31 @@ static void log_truncate(int* positions, int positions_size, char* command, bool
             if (t == NULL) { break; }
             /* printf("\nindex: %d, position: %d, position_index: %d\n", index, position, position_index); */
 
-            bool is_normal = t->truncated_by == NULL;
             if (index == position) {
                 /* printf("match\n"); */
-                if (include_log || is_normal) {
-                    // replace
-                    char* truncated_by = malloc(1024);
-                    strcpy(truncated_by, command);
+                // replace
+                char* truncated_by = malloc(1024);
+                strcpy(truncated_by, command);
 
-                    tcl_tailcall_t *m_truncated = malloc(sizeof(tcl_tailcall_t));
-                    *m_truncated = (tcl_tailcall_t) { NULL, NULL, truncated_by, 1 /* truncated_count */, NULL, NULL };
+                tcl_tailcall_t *m_truncated = malloc(sizeof(tcl_tailcall_t));
+                *m_truncated = (tcl_tailcall_t) { NULL, NULL, truncated_by, 1 /* truncated_count */, NULL, NULL };
 
-                    if (t->next == NULL && t->prev == NULL) {
-                        f->tailcall_head = m_truncated;
-                        f->tailcall_tail = m_truncated;
-                    } else if (t->next == NULL) {
-                        t->prev->next = m_truncated;
-                        m_truncated->prev = t->prev;
-                        f->tailcall_tail = m_truncated;
-                    } else if (t->prev == NULL) {
-                        t->next->prev = m_truncated;
-                        m_truncated->next = t->next;
-                        f->tailcall_head = m_truncated;
-                    } else {
-                        t->prev->next = m_truncated;
-                        t->next->prev = m_truncated;
-                        m_truncated->next = t->next;
-                        m_truncated->prev = t->prev;
-                    }
+                if (t->next == NULL && t->prev == NULL) {
+                    f->tailcall_head = m_truncated;
+                    f->tailcall_tail = m_truncated;
+                } else if (t->next == NULL) {
+                    t->prev->next = m_truncated;
+                    m_truncated->prev = t->prev;
+                    f->tailcall_tail = m_truncated;
+                } else if (t->prev == NULL) {
+                    t->next->prev = m_truncated;
+                    m_truncated->next = t->next;
+                    f->tailcall_head = m_truncated;
+                } else {
+                    t->prev->next = m_truncated;
+                    t->next->prev = m_truncated;
+                    m_truncated->next = t->next;
+                    m_truncated->prev = t->prev;
                 }
                 // update index
                 position_index++;
@@ -229,7 +223,7 @@ static void free_frame(tcl_frame_t *f) {
 }
 
 static void connect_patern_lang_server(char *send_str,
-        char *type_addr, bool *save_addr, bool *include_log_addr, int *indexes_size_addr,
+        char *type_addr, bool *save_addr, int *indexes_size_addr,
         int* indexes) {
 
     int sock; // ソケットディスクリプタ
@@ -255,11 +249,9 @@ static void connect_patern_lang_server(char *send_str,
 
     // パース 1行目
     char save;
-    char include_log;
-    sscanf(buf, "%c %c %c %d", type_addr, &save, &include_log, indexes_size_addr);
+    sscanf(buf, "%c %c %d", type_addr, &save, indexes_size_addr);
     int indexes_size = *indexes_size_addr;
     *save_addr = save == 's';
-    *include_log_addr = include_log == '_';
 
     // パース 2行目以降
     char* pos;
@@ -467,21 +459,20 @@ static void prompt(void) {
 
         char type;
         bool save;
-        bool include_log;
         int positions_size;
         int positions[TCL_MAX + RUBY_STACK_MAX];
         memset(&positions, 0, sizeof(positions));
-        connect_patern_lang_server(argument, &type, &save, &include_log, &positions_size, positions);
+        connect_patern_lang_server(argument, &type, &save, &positions_size, positions);
         for (int i = 0; i < positions_size; i++) { positions[i] += shift; }
 
         long prev_tailcalls_size_sum = tailcalls_size_sum;
         switch(type) {
             case 'd': // 消すものを受け取る
             case 'k':
-                log_delete(positions, positions_size, include_log);
+                log_delete(positions, positions_size);
                 break;
             case 't':
-                log_truncate(positions, positions_size, command, include_log);
+                log_truncate(positions, positions_size, command);
                 break;
             default:
                 printf("bug in prompt. type: `%c`\n", type);
@@ -545,20 +536,19 @@ void apply_saved(void) {
 
         char type;
         bool save;
-        bool include_log;
         int positions_size;
         int positions[TCL_MAX + RUBY_STACK_MAX];
         memset(&positions, 0, sizeof(positions));
-        connect_patern_lang_server(argument, &type, &save, &include_log, &positions_size, positions);
+        connect_patern_lang_server(argument, &type, &save, &positions_size, positions);
         for (int i = 0; i < positions_size; i++) { positions[i] += shift; }
 
         switch(type) {
             case 'd': // 消すものを受け取る
             case 'k':
-                log_delete(positions, positions_size, include_log);
+                log_delete(positions, positions_size);
                 break;
             case 't':
-                log_truncate(positions, positions_size, command, include_log);
+                log_truncate(positions, positions_size, command);
                 break;
             default:
                 printf("bug in apply_saved\n");

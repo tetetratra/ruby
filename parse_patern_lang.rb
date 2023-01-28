@@ -101,9 +101,8 @@ end
 def make_header(command, s)
   type = command[0]
   save = command.include?('1') ? '1' : 's'
-  include_log = command.include?('_') ? '_' : 'x'
   size = s.lines.size
-  "#{type} #{save} #{include_log} #{size}" # /foo/d1_ など
+  "#{type} #{save} #{size}" # /foo/d1_ など
 end
 
 def filter(init_string, patterns)
