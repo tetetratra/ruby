@@ -102,7 +102,7 @@ def make_header(command, s)
   type = command[0]
   save = command.include?('1') ? '1' : 's'
   size = s.lines.size
-  "#{type} #{save} #{size}" # /foo/d1_ など
+  "#{type} #{save} #{size}" # /foo/d など
 end
 
 def filter(init_string, patterns)
