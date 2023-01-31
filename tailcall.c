@@ -140,6 +140,7 @@ static void log_truncate(int* positions, int positions_size, char* command) {
                 // replace
                 char* truncated_by = malloc(1024);
                 strcpy(truncated_by, command);
+                truncated_by[strlen(truncated_by) - 1]= '\0'; // chop last `t`
 
                 tcl_tailcall_t *m_truncated = malloc(sizeof(tcl_tailcall_t));
                 *m_truncated = (tcl_tailcall_t) { NULL, NULL, truncated_by, 1 /* truncated_count */, NULL, NULL };
