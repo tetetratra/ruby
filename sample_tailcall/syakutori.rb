@@ -20,7 +20,7 @@
 
 def syaku_l(l, r, s, result)
   if l < $arr.size
-    syaku_r(l + 1, r, s - $arr[l], [*result, [l, r]])
+    syaku_r(l + 1, r, s - $arr[l], [result, l...r].max_by(&:size))
   else
     puts caller_locations(0)
     result
@@ -35,9 +35,14 @@ def syaku_r(l, r, s, result)
   end
 end
 
+# $arr = [4,6,7,8,1,2,110,2,4,12,3,9]
+srand(0)
 $arr = Array.new(10000) { rand(10) }
+
 # $arr = (大きな整数配列)
 $border = 1000
-syaku_r(0, 0, 0, [])
-
-
+p syaku_r(0, 0, 0, 0...0)
+# p res
+# p res.size
+# p $arr[res]
+# p $arr[res].sum
