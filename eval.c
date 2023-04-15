@@ -39,6 +39,8 @@
 #include "vm_core.h"
 #include "ractor_core.h"
 
+#include "vm_debug.h"
+
 NORETURN(static void rb_raise_jump(VALUE, VALUE));
 void rb_ec_clear_current_thread_trace_func(const rb_execution_context_t *ec);
 void rb_ec_clear_all_trace_func(const rb_execution_context_t *ec);
@@ -2032,9 +2034,46 @@ f_untrace_var(int c, const VALUE *a, VALUE _)
     return rb_f_untrace_var(c, a);
 }
 
+VALUE vm_cf_block_handler(rb_control_frame_t *cfp) {
+    return cfp->ep[-1];
+}
+
+static VALUE
+tracepoint_call(VALUE _self, VALUE val)
+{
+    /* rb_vmdebug_stack_dump_raw_current(); */
+
+    /* VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) )->self = Qnil; */
+    // VM_BH_TO_ISEQ_BLOCK の戻り値は `const struct rb_captured_block *` 型
+    // VM_TAGGED_PTR_REF(block_handler, 0x03) で代用できる？=>強制castでできた。
+    /* ((struct rb_captured_block *)VM_TAGGED_PTR_REF( vm_cf_block_handler( (GET_EC()->cfp + 2) ), 0x03 ))->self = Qnil; */
+    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->self = Qnil;
+
+    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.flags.ambiguous_param0 = 1;
+    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.flags.has_lead = 1;
+
+    /* printf(":::%d\n", VM_BH_TO_ISEQ_BLOCK( VM_CF_BLOCK_HANDLER( (GET_EC()->cfp + 2) ) )->code.iseq->body); */
+    /* VM_BH_TO_ISEQ_BLOCK( VM_CF_BLOCK_HANDLER( (GET_EC()->cfp + 2) ) )->code.iseq->body.param.flags.ambiguous_param0 = 1; */
+    /* printf(":::%d\n", VM_BH_TO_ISEQ_BLOCK( VM_CF_BLOCK_HANDLER( (GET_EC()->cfp + 2) ) )->code.iseq->body.param.flags.ambiguous_param0); */
+
+
+    // p VM_BH_TO_ISEQ_BLOCK( VM_CF_BLOCK_HANDLER( (GET_EC()->cfp + 2) ) )
+
+    /* rb_iseq_load( (GET_EC()->cfp + 2)->iseq, NULL, Qnil ); */
+
+    /* VALUE s = rb_iseq_disasm((GET_EC()->cfp + 2)->iseq); */
+    /* rb_io_puts(1, &s, rb_ractor_stdout()); */
+
+    // (GET_EC()->cfp + 2)->iseq は rb_iseq_t* 型。VALUEと同じ形? T_IMEMO 型。
+    return Qnil;
+}
+
 void
 Init_eval(void)
 {
+    rb_define_global_function("tracepoint_call", tracepoint_call, 0);
+
+
     rb_define_virtual_variable("$@", errat_getter, errat_setter);
     rb_define_virtual_variable("$!", errinfo_getter, 0);
 

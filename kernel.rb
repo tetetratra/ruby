@@ -145,7 +145,9 @@ module Kernel
     unless Primitive.block_given_p
       return Primitive.cexpr! 'SIZED_ENUMERATOR(self, 0, 0, rb_obj_size)'
     end
+    p :before_yield
     yield(self)
+    p :after_yield
   end
 
   module_function

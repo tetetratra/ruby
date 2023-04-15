@@ -3917,9 +3917,20 @@ iseqw_script_lines(VALUE self)
  *  Of course, this class is MRI specific.
  */
 
+/* VALUE rb_iseq_load(VALUE data, VALUE parent, VALUE opt); */
+VALUE load(VALUE _self, VALUE data) {
+    return rb_iseq_load(data, NULL, Qnil);
+}
+
 void
 Init_ISeq(void)
 {
+    /* VALUE rb_cRubyVM = rb_const_get(rb_cObject, rb_intern("RubyVM")); */
+    /* VALUE rb_cISeq = rb_const_get(rb_cRubyVM, rb_intern("InstructionSequence")); */
+    /* rb_define_singleton_method(rb_cISeq, "iseq_load", iseq_load, 1); */
+
+
+
     /* declare ::RubyVM::InstructionSequence */
     rb_cISeq = rb_define_class_under(rb_cRubyVM, "InstructionSequence", rb_cObject);
     rb_undef_alloc_func(rb_cISeq);
@@ -3964,4 +3975,6 @@ Init_ISeq(void)
 
     rb_undef_method(CLASS_OF(rb_cISeq), "translate");
     rb_undef_method(CLASS_OF(rb_cISeq), "load_iseq");
+
+    rb_define_singleton_method(rb_cISeq, "load", load, 1);
 }
