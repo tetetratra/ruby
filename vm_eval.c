@@ -2566,97 +2566,52 @@ vm_cf_block_handler(rb_control_frame_t * cfp)
 // cfp: --で伸びる, ++で縮む
 // sp,ep: ++で伸びる, --で縮む
 
-// rb_vmdebug_stack_dump_raw_current
-// -- Control frame information -----------------------------------------------
-// c:0005 p:---- s:0019 e:000018 CFUNC  :tracepoint_call
-// c:0004 p:0005 s:0014 e:000013 BLOCK  ../ruby/test.rb:2 [FINISH]
-// c:0003 p:0001 s:0010 e:000009 METHOD <internal:kernel>:145
-// c:0002 p:0035 s:0006 E:001ca0 EVAL   ../ruby/test.rb:9 [FINISH]
-// c:0001 p:0000 s:0003 E:000a90 (none) [FINISH]
-
-// iseq->body->param = {
-//     flags = { has_lead = 1, has_opt = 0, has_rest = 0, has_post = 0, has_kw = 0, has_kwrest = 0, has_block = 0, ambiguous_param0 = 1, accepts_no_kwarg = 0, ruby2_keywords = 0 },
-//     size = 1, lead_num = 1, opt_num = 0, rest_start = 0, post_start = 0, post_num = 0, block_start = 0, opt_table = 0x0, keyword = 0x0
-// }
-
+// c:0005 p:---- s:0020 e:000019 CFUNC  :tracepoint_call
+// c:0004 p:0005 s:0015 e:000014 BLOCK  ../ruby/test.rb:2 [FINISH]
+// c:0003 p:0001 s:0011 e:000010 METHOD <internal:trace_point>:135 <= ここのiseq
+// c:0002 p:0029 s:0006 E:001fa0 EVAL   ../ruby/test.rb:5 [FINISH]
+// c:0001 p:0000 s:0003 E:000920 (none) [FINISH]
 VALUE
-rb_tracepoint_call(VALUE _self, VALUE val) {
-    printf("rb_tracepoint_call\n");
-    rb_vmdebug_stack_dump_raw_current();
+rb_tracepoint_call(VALUE _self) {
     // ブロック引数が積まれるようにする
-    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.flags.ambiguous_param0 = 1;
     ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.flags.has_lead = 1;
+    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.flags.ambiguous_param0 = 1;
+    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.size = 1;
     ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->param.lead_num = 1;
-    // selfを書き換える
-    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->self = val;
+    ((struct rb_captured_block *)VM_BH_TO_ISEQ_BLOCK( vm_cf_block_handler( (GET_EC()->cfp + 2) ) ))->code.iseq->body->local_table_size = 1;
     return Qnil;
 }
 
-// rb_vmdebug_stack_dump_raw_current
-// c:0006 p:---- s:0021 e:000020 CFUNC  :tracepoint_b_call
-// c:0005 p:0003 s:0017 e:000016 BLOCK  ../ruby/test.rb:6 [FINISH]
-// c:0004 p:0001 s:0013 e:000012 BLOCK  ../ruby/test.rb:10
-// c:0003 p:0012 s:0010 e:000009 METHOD <internal:kernel>:148
-// c:0002 p:0035 s:0006 E:000590 EVAL   ../ruby/test.rb:9 [FINISH]
-// c:0001 p:0000 s:0003 E:001a90 (none) [FINISH]
+// c:0006 p:---- s:0022 e:000021 CFUNC  :tracepoint_b_call
+// c:0005 p:0003 s:0018 e:000017 BLOCK  ../ruby/test.rb:6 [FINISH]
+// c:0004 p:0001 s:0014 e:000013 BLOCK  ../ruby/test.rb:16 <= ここ
+// c:0003 p:0006 s:0010 e:000009 METHOD ../ruby/test.rb:11
+// c:0002 p:0045 s:0006 E:001fe0 EVAL   ../ruby/test.rb:15 [FINISH]
+// c:0001 p:0000 s:0003 E:000960 (none) [FINISH]
 VALUE
 rb_tracepoint_b_call(VALUE _self) {
-    printf("rb_tracepoint_b_call\n");
-    rb_vmdebug_stack_dump_raw_current();
     // 渡したパラメーターを得る
-    /* VALUE block_arg = *((GET_EC()->cfp + 1)->ep + 2); // 4個下のフレームの頭 == 3個下のフレームの底 */
-    /* rb_p(block_arg); */
-
-    // rb_p 自体がスタックを消費してしまっているかもしれない...
-    // rb_p( *((GET_EC()->cfp + 4)->sp + 0)  ) => [100]
-    // rb_p( *((GET_EC()->cfp + 3)->sp - 4)  ) => [100]
-    // rb_p( *((GET_EC()->cfp + 1)->ep + 1)  ) => 200
-    // rb_p( *((GET_EC()->cfp + 1)->ep + 2)  ) => #<BasicObject:0x0000fffff7b70b68> <- 怪しい
+    VALUE block_arg = *((GET_EC()->cfp + 2)->ep - 3);
+    // selfを置き換える
+    (GET_EC()->cfp + 2)->self = block_arg;
     return Qnil;
 }
 
-/* (gdb) p rb_p( *((GET_EC()->cfp + 1)->ep + 1)  ) */
-/* 200 */
-/* $17 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 1)->ep + 2)  ) */
-/* #<BasicObject:0x0000fffff7b708e8> */ <= 怪しい
-/* $18 = void */
-
-
-/* (gdb) p rb_p( *((GET_EC()->cfp + 0)->sp + 0)  ) */
-/* 715817025 */
-/* $1 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 1)->sp + 0)  ) */
-/* main */
-/* $2 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 2)->sp + 0)  ) */
-/* #<TracePoint:b_call ../ruby/test.rb:16> */
-/* $3 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 3)->sp + 0)  ) */
-/* false */
-/* $4 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 4)->sp + 0)  ) */
-/* main */
-/* $5 = void */
-
-/* (gdb) p rb_p( *((GET_EC()->cfp + 0)->ep + 1)  ) */
-/* 715817025 */
-/* $1 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 1)->ep + 1)  ) */
-/* main */
-/* $2 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 2)->ep + 1)  ) */
-/* #<TracePoint:b_call ../ruby/test.rb:16> */
-/* $3 = void */
-/* (gdb) p rb_p( *((GET_EC()->cfp + 3)->ep + 1)  ) */
-/* false */
-/* $4 = void */
+// c:0005 p:---- s:0018 e:000017 CFUNC  :cfunc
+// c:0004 p:0014 s:0014 e:000013 BLOCK  ../ruby/test.rb:12 <= ここ
+// c:0003 p:0012 s:0010 e:000009 METHOD <internal:kernel>:148
+// c:0002 p:0035 s:0006 E:002700 EVAL   ../ruby/test.rb:9 [FINISH]
+// c:0001 p:0000 s:0003 E:001f90 (none) [FINISH]
+VALUE rb_it(VALUE _self) {
+    return *((GET_EC()->cfp + 1)->ep - 3);
+}
 
 void
 Init_vm_eval(void)
 {
-    rb_define_global_function("tracepoint_call", rb_tracepoint_call, 1);
+    rb_define_global_function("tracepoint_call", rb_tracepoint_call, 0);
     rb_define_global_function("tracepoint_b_call", rb_tracepoint_b_call, 0);
+    rb_define_global_function("it", rb_it, 0);
 
     rb_define_global_function("eval", rb_f_eval, -1);
     rb_define_global_function("local_variables", rb_f_local_variables, 0);
