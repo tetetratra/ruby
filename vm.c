@@ -1301,49 +1301,6 @@ rb_binding_add_dynavars(VALUE bindval, rb_binding_t *bind, int dyncount, const I
 
 /* C -> Ruby: block */
 
-// (gdb) p rb_vmdebug_stack_dump_raw_current()
-// -- Control frame information -----------------------------------------------
-// c:0003 p:---- s:0011 e:000010 CFUNC  :filter
-// c:0002 p:0036 s:0007 E:0005b0 EVAL   ../ruby/test.rb:9 [FINISH]
-// c:0001 p:0000 s:0003 E:001a10 (none) [FINISH]
-// (gdb) p ruby_debug_print_v(self)
-// DBG> : 0x0000fffff7b142c8 [0      ] T_OBJECT (embed) len:3 <= mainのこと
-// (gdb) p ruby_debug_print_v(*(ec->cfp->sp))
-// DBG> : T_FIXNUM 10 <= ちゃんと積まれている
-// (gdb) p iseq->body->param.size
-// $9 = 0
-// (gdb) p iseq->body->local_table_size
-// $10 = 0 <= つまりlocal_size==0となる
-// (gdb) p (ec->cfp->sp)
-// $3 = (VALUE *) 0xfffff7b74068 <= アドレスはここ
-// (gdb) p ruby_debug_print_v( *0xfffff7b74068 )
-// DBG> : T_FIXNUM 10 <= アドレスを指定してもちゃんと得れる
-
-// --- returnまでn後 ---
-// (gdb) p (ec->cfp->sp)
-// $3 = (VALUE *) 0xfffff7b74088
-// (gdb) p ruby_debug_print_v(*(ec->cfp->sp))
-// DBG> : T_FIXNUM 286326800 <= 壊れちゃった...
-// (gdb) p ruby_debug_print_v( *0xfffff7b74068 )
-// DBG> : T_FALSE <= 元々はこのアドレスには T_FIXNUM 10 が入っていたのに...
-
-
-// (gdb) p rb_vmdebug_stack_dump_raw_current()
-// -- Control frame information -----------------------------------------------
-// c:0004 p:0001 s:0014 e:000013 BLOCK  ../ruby/test.rb:10 [FINISH]
-// c:0003 p:---- s:0011 e:000010 CFUNC  :filter
-// c:0002 p:0036 s:0007 E:0005b0 EVAL   ../ruby/test.rb:9 [FINISH]
-// c:0001 p:0000 s:0003 E:001a10 (none) [FINISH]
-// (gdb) p ruby_debug_print_v(self)
-// DBG> : 0x0000fffff7b142c8 [0      ] T_OBJECT (embed) len:3 <= mainのこと
-// (gdb) p ruby_debug_print_v(*(ec->cfp->sp))
-// DBG> : 0x0000fffff7b70b40 [0    U ] tracepoint (TracePoint)tracepoint <= tracepointのRubyのブロックのフレーム
-// (gdb) p iseq->body->param.size
-// $16 = 1
-// (gdb) p iseq->body->local_table_size
-// $17 = 1
-
-// 一回だけ iseq->body->param.size = 1 をすれば上手く動いた
 static inline VALUE
 invoke_block(rb_execution_context_t *ec, const rb_iseq_t *iseq, VALUE self, const struct rb_captured_block *captured, const rb_cref_t *cref, VALUE type, int opt_pc)
 {
