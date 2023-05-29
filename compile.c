@@ -6191,17 +6191,21 @@ iseq_compile_pattern_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, const NODE *c
          *   end
          *
          *   begin
-         *     len = d.length
-         *     limit = d.length - pattern.args_num
-         *     i = 0
+         *     len = d.length # オブジェクトの長さ
+         *     pattern.args_num # パターンの長さ
+         *     limit = d.length - pattern.args_num # 何回windowをスライドできるか
+         *     i = 0 # スライドした回数
          *     while i <= limit
+         *       # d[i+j] を d[(1 - i + len) + j] にすればよさそう
          *       if pattern.args_num.times.all? {|j| pattern.args[j].match?(d[i+j]) }
          *         if pattern.has_pre_rest_arg_id
+         *           # i を i+1 にする
          *           unless pattern.pre_rest_arg.match?(d[0, i])
          *             goto find_failed
          *           end
          *         end
          *         if pattern.has_post_rest_arg_id
+         *           # i+pattern.args_num を i+pattern.args_num+1 にする
          *           unless pattern.post_rest_arg.match?(d[i+pattern.args_num, len])
          *             goto find_failed
          *           end
@@ -6269,38 +6273,51 @@ iseq_compile_pattern_each(rb_iseq_t *iseq, LINK_ANCHOR *const ret, const NODE *c
 
             for (j = 0; j < args_num; j++) {
                 ADD_INSN1(ret, line_node, topn, INT2FIX(3));
-                ADD_INSN1(ret, line_node, topn, INT2FIX(1));
+                ADD_INSN1(ret, line_node, topn, INT2FIX(1));      // [i] なはず
+                ADD_INSN1(ret, line_node, putobject, INT2FIX(1)); // [i, 1]
+                ADD_INSN(ret, line_node, swap);                   // [1, i]
+                ADD_SEND(ret, line_node, idMINUS, INT2FIX(1));    // [1-i]
+                ADD_INSN1(ret, line_node, topn, INT2FIX(3));      // [1-i, len]
+                ADD_SEND(ret, line_node, idPLUS, INT2FIX(1));     // [1-i+len]
                 if (j != 0) {
-                    ADD_INSN1(ret, line_node, putobject, INT2FIX(j));
-                    ADD_SEND(ret, line_node, idPLUS, INT2FIX(1));
+                    ADD_INSN1(ret, line_node, putobject, INT2FIX(j)); // [1-i+len, j]
+                    ADD_SEND(ret, line_node, idPLUS, INT2FIX(1)); // [(1-i+len) + j]
                 }
-                ADD_SEND(ret, line_node, idAREF, INT2FIX(1)); // (5)
+                ADD_SEND(ret, line_node, idAREF, INT2FIX(1)); // (5) // [ `obj[(1-i+len) + j]` ]
 
                 CHECK(iseq_compile_pattern_match(iseq, ret, args->nd_head, next_loop, in_single_pattern, in_alt_pattern, base_index + 4 /* (2), (3), (4), (5) */, false));
                 args = args->nd_next;
             }
 
             if (NODE_NAMED_REST_P(fpinfo->pre_rest_arg)) {
-                ADD_INSN1(ret, line_node, topn, INT2FIX(3));
-                ADD_INSN1(ret, line_node, putobject, INT2FIX(0));
-                ADD_INSN1(ret, line_node, topn, INT2FIX(2));
-                ADD_SEND(ret, line_node, idAREF, INT2FIX(2)); // (6)
+                ADD_INSN1(ret, line_node, topn, INT2FIX(3)); // [obj]
+                ADD_INSN1(ret, line_node, putobject, INT2FIX(0)); // [obj, 0]
+                ADD_INSN1(ret, line_node, topn, INT2FIX(2)); // [obj, 0, i]
+
+                ADD_INSN1(ret, line_node, putobject, INT2FIX(1));  // [obj, 0, i, 1]
+                ADD_SEND(ret, line_node, idPLUS, INT2FIX(1));      // [obj, 0, i+1]
+
+                ADD_SEND(ret, line_node, idAREF, INT2FIX(2)); // (6) [ obj[0, i+1] ]
                 CHECK(iseq_compile_pattern_match(iseq, ret, fpinfo->pre_rest_arg, find_failed, in_single_pattern, in_alt_pattern, base_index + 4 /* (2), (3), (4), (6) */, false));
             }
             if (NODE_NAMED_REST_P(fpinfo->post_rest_arg)) {
-                ADD_INSN1(ret, line_node, topn, INT2FIX(3));
-                ADD_INSN1(ret, line_node, topn, INT2FIX(1));
-                ADD_INSN1(ret, line_node, putobject, INT2FIX(args_num));
-                ADD_SEND(ret, line_node, idPLUS, INT2FIX(1));
-                ADD_INSN1(ret, line_node, topn, INT2FIX(3));
-                ADD_SEND(ret, line_node, idAREF, INT2FIX(2)); // (7)
+                ADD_INSN1(ret, line_node, topn, INT2FIX(3)); // [obj]
+                ADD_INSN1(ret, line_node, topn, INT2FIX(1)); // [obj, i]
+                ADD_INSN1(ret, line_node, putobject, INT2FIX(args_num)); // [?, i, args_num]
+                ADD_SEND(ret, line_node, idPLUS, INT2FIX(1)); // [obj, i + args_num]
+
+                ADD_INSN1(ret, line_node, putobject, INT2FIX(1));  // [obj, i + args_num, 1]
+                ADD_SEND(ret, line_node, idPLUS, INT2FIX(1));      // [obj, i + args_num + 1]
+
+                ADD_INSN1(ret, line_node, topn, INT2FIX(3)); // [obj, i + args_num + 1, len]
+                ADD_SEND(ret, line_node, idAREF, INT2FIX(2)); // (7) // [ obj[i + args_num + 1, len] ]
                 CHECK(iseq_compile_pattern_match(iseq, ret, fpinfo->post_rest_arg, find_failed, in_single_pattern, in_alt_pattern, base_index + 4 /* (2), (3),(4), (7) */, false));
             }
             ADD_INSNL(ret, line_node, jump, find_succeeded);
 
             ADD_LABEL(ret, next_loop);
-            ADD_INSN1(ret, line_node, putobject, INT2FIX(1));
-            ADD_SEND(ret, line_node, idPLUS, INT2FIX(1));
+            ADD_INSN1(ret, line_node, putobject, INT2FIX(1)); // [i] => [i, 1]
+            ADD_SEND(ret, line_node, idPLUS, INT2FIX(1)); // [i+1]
             ADD_INSNL(ret, line_node, jump, while_begin);
 
             ADD_LABEL(ret, find_failed);
