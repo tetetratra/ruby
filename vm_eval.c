@@ -2555,9 +2555,86 @@ rb_current_realfilepath(void)
     return Qnil;
 }
 
+VALUE rb_get_cfp(void)
+{
+    rb_control_frame_t* cfp = GET_EC()->cfp;
+    return LONG2FIX(cfp);
+}
+
+VALUE cfp2pc(VALUE _self, VALUE ptr_rb)
+{
+    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    printf("cfp2pc\n    cfp: %x\n", cfp);
+    printf("cfp2pc\n    pc: %x\n", cfp->pc);
+    return LONG2FIX(cfp->pc);
+}
+
+VALUE cfp2ep(VALUE _self, VALUE ptr_rb)
+{
+    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    // printf("sizeof(rb_control_frame_t): %d\n", sizeof(rb_control_frame_t));
+    // printf("sizeof(VALUE): %d\n", sizeof(VALUE));
+    return LONG2FIX(cfp->ep);
+}
+
+VALUE cfp2sp(VALUE _self, VALUE ptr_rb)
+{
+    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    return LONG2FIX(cfp->sp);
+}
+
+VALUE cfp2iseq(VALUE _self, VALUE ptr_rb)
+{
+    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    return LONG2FIX(cfp->iseq);
+}
+
+VALUE cfp2self(VALUE _self, VALUE ptr_rb)
+{
+    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    return cfp->self;
+}
+
+VALUE cfp2self_assign(VALUE _self, VALUE ptr_rb, VALUE assign)
+{
+    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    cfp->self = assign;
+    return Qnil;
+}
+
+VALUE rb_access(VALUE _self, VALUE ptr_rb)
+{
+    VALUE* prt = FIX2LONG(ptr_rb);
+    return *prt;
+}
+
+VALUE rb_access_ptr(VALUE _self, VALUE ptr_rb)
+{
+    VALUE* prt = FIX2LONG(ptr_rb);
+    return LONG2FIX(*prt); // ポインタとして扱いたいとき
+}
+
+
 void
 Init_vm_eval(void)
 {
+    rb_define_global_function("cfp!", rb_get_cfp, 0);
+
+    rb_define_global_function("cfp2pc", cfp2pc, 1);
+    rb_define_global_function("cfp2ep", cfp2ep, 1);
+    rb_define_global_function("cfp2sp", cfp2sp, 1);
+    rb_define_global_function("cfp2iseq", cfp2iseq, 1);
+    rb_define_global_function("cfp2self", cfp2self, 1);
+
+    rb_define_global_function("cfp2self_assign", cfp2self_assign, 2);
+
+    rb_define_global_function("get!", rb_access, 1);
+    rb_define_global_function("get_ptr!", rb_access_ptr, 1);
+
+
+
+
+
     rb_define_global_function("eval", rb_f_eval, -1);
     rb_define_global_function("local_variables", rb_f_local_variables, 0);
     rb_define_global_function("iterator?", rb_f_iterator_p, 0);
