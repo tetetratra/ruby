@@ -2555,81 +2555,77 @@ rb_current_realfilepath(void)
     return Qnil;
 }
 
-VALUE rb_get_cfp(void)
+
+
+
+
+
+VALUE rb_cPointer;
+VALUE rb_cValuePointer;
+VALUE rb_cControlFramePointer;
+
+VALUE
+current(void)
 {
     rb_control_frame_t* cfp = GET_EC()->cfp;
-    return LONG2FIX(cfp);
+    VALUE cfp_v = LONG2FIX(cfp + 1);
+    return rb_class_new_instance(1, &cfp_v, rb_cControlFramePointer);
 }
 
-VALUE cfp2pc(VALUE _self, VALUE ptr_rb)
+static VALUE
+cControlFramePointer_self(VALUE self)
 {
-    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
-    printf("cfp2pc\n    cfp: %x\n", cfp);
-    printf("cfp2pc\n    pc: %x\n", cfp->pc);
-    return LONG2FIX(cfp->pc);
-}
-
-VALUE cfp2ep(VALUE _self, VALUE ptr_rb)
-{
-    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
-    // printf("sizeof(rb_control_frame_t): %d\n", sizeof(rb_control_frame_t));
-    // printf("sizeof(VALUE): %d\n", sizeof(VALUE));
-    return LONG2FIX(cfp->ep);
-}
-
-VALUE cfp2sp(VALUE _self, VALUE ptr_rb)
-{
-    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
-    return LONG2FIX(cfp->sp);
-}
-
-VALUE cfp2iseq(VALUE _self, VALUE ptr_rb)
-{
-    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
-    return LONG2FIX(cfp->iseq);
-}
-
-VALUE cfp2self(VALUE _self, VALUE ptr_rb)
-{
-    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
+    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
     return cfp->self;
 }
 
-VALUE cfp2self_assign(VALUE _self, VALUE ptr_rb, VALUE assign)
+static VALUE
+cControlFramePointer_pc(VALUE self)
 {
-    rb_control_frame_t* cfp = FIX2LONG(ptr_rb);
-    cfp->self = assign;
-    return Qnil;
+    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+    VALUE pc = LONG2FIX(cfp->pc);
+    return rb_class_new_instance(1, &pc, rb_cValuePointer);
 }
 
-VALUE rb_access(VALUE _self, VALUE ptr_rb)
+static VALUE
+cControlFramePointer_sp(VALUE self)
 {
-    VALUE* prt = FIX2LONG(ptr_rb);
-    return *prt;
+    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+    VALUE sp = LONG2FIX(cfp->sp);
+    return rb_class_new_instance(1, &sp, rb_cValuePointer);
 }
 
-VALUE rb_access_ptr(VALUE _self, VALUE ptr_rb)
+static VALUE
+cControlFramePointer_ep(VALUE self)
 {
-    VALUE* prt = FIX2LONG(ptr_rb);
-    return LONG2FIX(*prt); // ポインタとして扱いたいとき
+    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+    VALUE ep = LONG2FIX(cfp->ep);
+    return rb_class_new_instance(1, &ep, rb_cValuePointer);
 }
 
+static VALUE
+cValuePointer_to_rb(VALUE self)
+{
+    VALUE* obj = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+    return *obj;
+}
 
 void
 Init_vm_eval(void)
 {
-    rb_define_global_function("cfp!", rb_get_cfp, 0);
+    rb_cPointer             = rb_define_class("Pointer", rb_cObject);
 
-    rb_define_global_function("cfp2pc", cfp2pc, 1);
-    rb_define_global_function("cfp2ep", cfp2ep, 1);
-    rb_define_global_function("cfp2sp", cfp2sp, 1);
-    rb_define_global_function("cfp2iseq", cfp2iseq, 1);
-    rb_define_global_function("cfp2self", cfp2self, 1);
+    rb_cValuePointer        = rb_define_class(       "ValuePointer", rb_cPointer);
+    rb_cControlFramePointer = rb_define_class("ControlFramePointer", rb_cPointer);
 
-    rb_define_global_function("cfp2self_assign", cfp2self_assign, 2);
+    rb_define_singleton_method(rb_cControlFramePointer, "current!", current, 0);
 
-    rb_define_global_function("get!", rb_access, 1);
-    rb_define_global_function("get_ptr!", rb_access_ptr, 1);
+    rb_define_method(rb_cControlFramePointer, "self", cControlFramePointer_self, 0);
+    rb_define_method(rb_cControlFramePointer,   "pc",   cControlFramePointer_pc, 0);
+    rb_define_method(rb_cControlFramePointer,   "sp",   cControlFramePointer_sp, 0);
+    rb_define_method(rb_cControlFramePointer,   "ep",   cControlFramePointer_ep, 0);
+
+    rb_define_method(rb_cValuePointer, "to_rb", cValuePointer_to_rb, 0);
 
 
 
