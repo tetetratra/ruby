@@ -11,6 +11,7 @@
 
 **********************************************************************/
 
+#include <ruby/ruby.h>
 struct local_var_list {
     VALUE tbl;
 };
@@ -2557,7 +2558,12 @@ rb_current_realfilepath(void)
 
 
 
-
+VALUE
+print_stack(void)
+{
+    rb_vmdebug_stack_dump_raw_current();
+    return Qnil;
+}
 
 
 VALUE rb_cPointer;
@@ -2568,7 +2574,7 @@ VALUE
 current(void)
 {
     rb_control_frame_t* cfp = GET_EC()->cfp;
-    VALUE cfp_v = LONG2FIX(cfp + 1);
+    VALUE cfp_v = LONG2FIX((cfp + 1)); // current呼び出し分を差し引くので+1している
     return rb_class_new_instance(1, &cfp_v, rb_cControlFramePointer);
 }
 
@@ -2591,35 +2597,41 @@ static VALUE
 cControlFramePointer_sp(VALUE self)
 {
     rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE sp = LONG2FIX(cfp->sp);
-    return rb_class_new_instance(1, &sp, rb_cValuePointer);
+    VALUE *sp_addr = cfp->sp;
+    VALUE sp_rb = LONG2FIX(sp_addr);
+    return rb_class_new_instance(1, &sp_rb, rb_cValuePointer);
 }
 
 static VALUE
 cControlFramePointer_ep(VALUE self)
 {
     rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE ep = LONG2FIX(cfp->ep);
-    return rb_class_new_instance(1, &ep, rb_cValuePointer);
+    VALUE *ep_addr = cfp->ep;
+    VALUE ep_rb = LONG2FIX(ep_addr);
+    return rb_class_new_instance(1, &ep_rb, rb_cValuePointer);
 }
 
 static VALUE
 cValuePointer_to_rb(VALUE self)
 {
-    VALUE* obj = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+    VALUE *obj = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
     return *obj;
 }
 
 void
 Init_vm_eval(void)
 {
-    rb_cPointer             = rb_define_class("Pointer", rb_cObject);
+    rb_define_global_function("print_stack!", print_stack, 0);
 
+    // クラス定義
+    rb_cPointer             = rb_define_class(            "Pointer",  rb_cObject);
     rb_cValuePointer        = rb_define_class(       "ValuePointer", rb_cPointer);
     rb_cControlFramePointer = rb_define_class("ControlFramePointer", rb_cPointer);
 
+    // クラスメソッド定義
     rb_define_singleton_method(rb_cControlFramePointer, "current!", current, 0);
 
+    // インスタンスメソッド定義
     rb_define_method(rb_cControlFramePointer, "self", cControlFramePointer_self, 0);
     rb_define_method(rb_cControlFramePointer,   "pc",   cControlFramePointer_pc, 0);
     rb_define_method(rb_cControlFramePointer,   "sp",   cControlFramePointer_sp, 0);
@@ -2627,9 +2639,12 @@ Init_vm_eval(void)
 
     rb_define_method(rb_cValuePointer, "to_rb", cValuePointer_to_rb, 0);
 
-
-
-
+    // TODO: 名前整理
+    // TODO: Gem化
+    // TODO: IseqPointer
+    // TODO: ControlFramePointer#pc= など (一部は意味ないけど)
+    // TODO: ControlFramePointer#print_frame フレームの名前も出したい
+    // TODO: ValuePointer#valid?
 
     rb_define_global_function("eval", rb_f_eval, -1);
     rb_define_global_function("local_variables", rb_f_local_variables, 0);
