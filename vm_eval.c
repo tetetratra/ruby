@@ -2558,6 +2558,7 @@ rb_current_realfilepath(void)
 
 
 
+void rb_vmdebug_stack_dump_raw_current(void);
 VALUE
 print_stack(void)
 {
@@ -2569,120 +2570,153 @@ print_stack(void)
 VALUE rb_cPointer;
 VALUE rb_cValuePointer;
 VALUE rb_cControlFramePointer;
+VALUE rb_cIseqPointer;
 
-VALUE
-current(void)
-{
-    rb_control_frame_t* cfp = GET_EC()->cfp;
-    VALUE cfp_v = LONG2FIX((cfp + 1)); // current呼び出し分を差し引くので+1している
-    return rb_class_new_instance(1, &cfp_v, rb_cControlFramePointer);
+static VALUE current(VALUE _self) {
+  rb_control_frame_t *cfp = GET_EC()->cfp;
+  VALUE cfp_v =
+      LONG2FIX((long)(cfp + 1)); // current呼び出し分を差し引くので+1している
+  return rb_class_new_instance(1, &cfp_v, rb_cControlFramePointer);
 }
 
-static VALUE
-cControlFramePointer_self(VALUE self)
-{
-    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    return cfp->self;
+static VALUE cControlFramePointer_self(VALUE self) {
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  return cfp->self;
 }
 
-static VALUE
-cControlFramePointer_pc(VALUE self)
-{
-    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE pc = LONG2FIX(cfp->pc);
-    return rb_class_new_instance(1, &pc, rb_cValuePointer);
+static VALUE cControlFramePointer_pc(VALUE self) {
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  VALUE pc = LONG2FIX((long)cfp->pc);
+  return rb_class_new_instance(1, &pc, rb_cValuePointer);
 }
 
-static VALUE
-cControlFramePointer_sp(VALUE self)
-{
-    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE *sp_addr = cfp->sp;
-    VALUE sp_rb = LONG2FIX(sp_addr);
-    return rb_class_new_instance(1, &sp_rb, rb_cValuePointer);
+static VALUE cControlFramePointer_sp(VALUE self) {
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  VALUE *sp_addr = cfp->sp;
+  VALUE sp_rb = LONG2FIX((long)sp_addr);
+  return rb_class_new_instance(1, &sp_rb, rb_cValuePointer);
 }
 
-static VALUE
-cControlFramePointer_ep(VALUE self)
-{
-    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE *ep_addr = cfp->ep;
-    VALUE ep_rb = LONG2FIX(ep_addr);
-    return rb_class_new_instance(1, &ep_rb, rb_cValuePointer);
+static VALUE cControlFramePointer_ep(VALUE self) {
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  VALUE *ep_addr = cfp->ep;
+  VALUE ep_rb = LONG2FIX((long)ep_addr);
+  return rb_class_new_instance(1, &ep_rb, rb_cValuePointer);
 }
 
-static VALUE
-cValuePointer_to_rb(VALUE self)
-{
-    VALUE *obj = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    return *obj;
+static VALUE cControlFramePointer_iseq(VALUE self) {
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  return rb_iseqw_new(cfp->iseq);
 }
 
-static VALUE
-cValuePointer_frame_type(VALUE self)
-{
-    // 参考: vm_frametype_name (vm.c)
-    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE *ep_addr = cfp->ep;
-    switch (ep_addr[VM_ENV_DATA_INDEX_FLAGS] & VM_FRAME_MAGIC_MASK) {
-      case VM_FRAME_MAGIC_METHOD: return rb_str_new("method", 6);
-      case VM_FRAME_MAGIC_BLOCK:  return rb_str_new("block" , 5);
-      case VM_FRAME_MAGIC_CLASS:  return rb_str_new("class" , 5);
-      case VM_FRAME_MAGIC_TOP:    return rb_str_new("top"   , 3);
-      case VM_FRAME_MAGIC_CFUNC:  return rb_str_new("cfunc" , 5);
-      case VM_FRAME_MAGIC_IFUNC:  return rb_str_new("ifunc" , 5);
-      case VM_FRAME_MAGIC_EVAL:   return rb_str_new("eval"  , 4);
-      case VM_FRAME_MAGIC_RESCUE: return rb_str_new("rescue", 6);
-    }
+static VALUE cValuePointer_to_rb(VALUE self) {
+  VALUE *obj = (VALUE *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  return *obj;
 }
 
-static VALUE
-cValuePointer_frame_flag(VALUE self)
-{
-    rb_control_frame_t* cfp = FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
-    VALUE ep = cfp->ep[VM_ENV_DATA_INDEX_FLAGS];
-
-    VALUE a = rb_ary_new();
-    if (ep & VM_FRAME_FLAG_FINISH               ) { rb_ary_push(a, rb_str_new("finish              ",  6)); }
-    if (ep & VM_FRAME_FLAG_BMETHOD              ) { rb_ary_push(a, rb_str_new("bmethod             ",  7)); }
-    if (ep & VM_FRAME_FLAG_CFRAME               ) { rb_ary_push(a, rb_str_new("cframe              ",  6)); }
-    if (ep & VM_FRAME_FLAG_LAMBDA               ) { rb_ary_push(a, rb_str_new("lambda              ",  6)); }
-    if (ep & VM_FRAME_FLAG_MODIFIED_BLOCK_PARAM ) { rb_ary_push(a, rb_str_new("modified_block_param", 20)); }
-    if (ep & VM_FRAME_FLAG_CFRAME_KW            ) { rb_ary_push(a, rb_str_new("cframe_kw           ",  9)); }
-    if (ep & VM_FRAME_FLAG_PASSED               ) { rb_ary_push(a, rb_str_new("passed              ",  6)); }
-
-    if (ep & VM_ENV_FLAG_LOCAL      ) { rb_ary_push(a, rb_str_new("local",         5)); }
-    if (ep & VM_ENV_FLAG_ESCAPED    ) { rb_ary_push(a, rb_str_new("escaped",       7)); }
-    if (ep & VM_ENV_FLAG_WB_REQUIRED) { rb_ary_push(a, rb_str_new("wb_required",  11)); }
-    if (ep & VM_ENV_FLAG_ISOLATED   ) { rb_ary_push(a, rb_str_new("isolated",      8)); }
-    return a;
+static VALUE cValuePointer_frame_type(VALUE self) {
+  // 参考: vm_frametype_name (vm.c)
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  VALUE *ep_addr = cfp->ep;
+  switch (ep_addr[VM_ENV_DATA_INDEX_FLAGS] & VM_FRAME_MAGIC_MASK) {
+  case VM_FRAME_MAGIC_METHOD:
+    return rb_str_new("method", 6);
+  case VM_FRAME_MAGIC_BLOCK:
+    return rb_str_new("block", 5);
+  case VM_FRAME_MAGIC_CLASS:
+    return rb_str_new("class", 5);
+  case VM_FRAME_MAGIC_TOP:
+    return rb_str_new("top", 3);
+  case VM_FRAME_MAGIC_CFUNC:
+    return rb_str_new("cfunc", 5);
+  case VM_FRAME_MAGIC_IFUNC:
+    return rb_str_new("ifunc", 5);
+  case VM_FRAME_MAGIC_EVAL:
+    return rb_str_new("eval", 4);
+  case VM_FRAME_MAGIC_RESCUE:
+    return rb_str_new("rescue", 6);
+  default:
+    return Qnil;
+  }
 }
 
+static VALUE cValuePointer_frame_flags(VALUE self) {
+  rb_control_frame_t *cfp =
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  VALUE ep = cfp->ep[VM_ENV_DATA_INDEX_FLAGS];
+
+  VALUE a = rb_ary_new();
+  // FRAME_FLAG
+  if (ep & VM_FRAME_FLAG_FINISH) {
+    rb_ary_push(a, rb_str_new("finish", 6));
+  }
+  if (ep & VM_FRAME_FLAG_BMETHOD) {
+    rb_ary_push(a, rb_str_new("bmethod", 7));
+  }
+  if (ep & VM_FRAME_FLAG_CFRAME) {
+    rb_ary_push(a, rb_str_new("cframe", 6));
+  }
+  if (ep & VM_FRAME_FLAG_LAMBDA) {
+    rb_ary_push(a, rb_str_new("lambda", 6));
+  }
+  if (ep & VM_FRAME_FLAG_MODIFIED_BLOCK_PARAM) {
+    rb_ary_push(a, rb_str_new("modified_block_param", 20));
+  }
+  if (ep & VM_FRAME_FLAG_CFRAME_KW) {
+    rb_ary_push(a, rb_str_new("cframe_kw", 9));
+  }
+  if (ep & VM_FRAME_FLAG_PASSED) {
+    rb_ary_push(a, rb_str_new("passed", 6));
+  }
+  // ENV_FLAG
+  if (ep & VM_ENV_FLAG_LOCAL) {
+    rb_ary_push(a, rb_str_new("local", 5));
+  }
+  if (ep & VM_ENV_FLAG_ESCAPED) {
+    rb_ary_push(a, rb_str_new("escaped", 7));
+  }
+  if (ep & VM_ENV_FLAG_WB_REQUIRED) {
+    rb_ary_push(a, rb_str_new("wb_required", 11));
+  }
+  if (ep & VM_ENV_FLAG_ISOLATED) {
+    rb_ary_push(a, rb_str_new("isolated", 8));
+  }
+  return a;
+}
 
 void
 Init_vm_eval(void)
 {
+    // class
+    rb_cPointer             = rb_define_class("Pointer", rb_cObject);
+
+    rb_cValuePointer        = rb_define_class("ValuePointer",        rb_cPointer);
+    rb_cControlFramePointer = rb_define_class("ControlFramePointer", rb_cPointer);
+    rb_cIseqPointer         = rb_define_class("IseqPointer",         rb_cPointer);
+
+    // ControlFramePointer
+    rb_define_singleton_method(rb_cControlFramePointer, "current!", current, 0);
+    rb_define_method(rb_cControlFramePointer, "self",        cControlFramePointer_self, 0);
+    rb_define_method(rb_cControlFramePointer, "pc",          cControlFramePointer_pc,   0);
+    rb_define_method(rb_cControlFramePointer, "sp",          cControlFramePointer_sp,   0);
+    rb_define_method(rb_cControlFramePointer, "ep",          cControlFramePointer_ep,   0);
+    rb_define_method(rb_cControlFramePointer, "iseq",        cControlFramePointer_iseq, 0);
+    rb_define_method(rb_cControlFramePointer, "frame_type",  cValuePointer_frame_type,  0);
+    rb_define_method(rb_cControlFramePointer, "frame_flags", cValuePointer_frame_flags, 0);
+
+    // ValuePointer
+    rb_define_method(rb_cValuePointer, "to_rb", cValuePointer_to_rb, 0);
+
+    // debug
     rb_define_global_function("print_stack!", print_stack, 0);
 
-    // クラス定義
-    rb_cPointer             = rb_define_class(            "Pointer",  rb_cObject);
-    rb_cValuePointer        = rb_define_class(       "ValuePointer", rb_cPointer);
-    rb_cControlFramePointer = rb_define_class("ControlFramePointer", rb_cPointer);
-
-    // クラスメソッド定義
-    rb_define_singleton_method(rb_cControlFramePointer, "current!", current, 0);
-
-    // インスタンスメソッド定義
-    rb_define_method(rb_cControlFramePointer,      "self", cControlFramePointer_self, 0);
-    rb_define_method(rb_cControlFramePointer,        "pc",   cControlFramePointer_pc, 0);
-    rb_define_method(rb_cControlFramePointer,        "sp",   cControlFramePointer_sp, 0);
-    rb_define_method(rb_cControlFramePointer,        "ep",   cControlFramePointer_ep, 0);
-    rb_define_method(rb_cValuePointer,            "to_rb", cValuePointer_to_rb, 0);
-    rb_define_method(rb_cControlFramePointer, "frame_type", cValuePointer_frame_type, 0);
-    rb_define_method(rb_cControlFramePointer, "frame_flag", cValuePointer_frame_flag, 0);
-
     // TODO: Gem化
-    // TODO: IseqPointer
     // TODO: ensemble_castで使う
 
     rb_define_global_function("eval", rb_f_eval, -1);
