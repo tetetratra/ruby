@@ -9,50 +9,79 @@ class Pointer
   end
 
   # トップクラスのepのみ値がおかしいから、initialize時に&ffffffffのようなことはできない(しない)
-  def inspect = "#<#{self.class} @ptr=#{@ptr.to_s(16)}>"
+  def inspect = "#<#{self.class} @ptr=#{ptr_inspect}>"
+  def ptr_inspect = @ptr.to_s(16)[4..]
 
   alias to_s inspect
 
   def +(n)
     raise NotImplementedError if size.nil?
-
     self.class.new(@ptr + size * n)
   end
 
   def -(n)
     raise NotImplementedError if size.nil?
-
     self.class.new(@ptr - size * n)
   end
 end
 
 class ValuePointer < Pointer
+  # CRuby側に定義がある関数
+  # #to_rb
+
   SIZE = 8
   def size = SIZE
 end
 
 class ControlFramePointer < Pointer
+  # CRuby側に定義がある関数
+  # .current!
+  # #self
+  # #sp
+  # #pc
+  # #ep
+  # #frame_type
+
   SIZE = 64
   def size = SIZE
 
-  def print_frame!(x = nil)
-    # spからcfpのivの個数分下までをprint
-    puts " /\n| ptr: #{@ptr.to_s(16)}\n| sp: #{sp}\n| ep: #{ep}\n| stack:"
-    ((sp.ptr - ((self + 1).sp).ptr) / ValuePointer::SIZE).times do |i| # (今のep - 3 == 1個前のsp) みたいなことがあるから、spの差を使っている今のやりかたではよくない
-      v = sp - i
-      puts  "|   #{v.ptr.to_s(16)} : #{[1,2,3].any?(i) ? '-' : v.to_rb.inspect}"
-      # type <- ep
-      # special
-      # cref_or_me
+  def up = self - 1
+  def down = self + 1
+
+  def print_frame!
+    ((sp.ptr - down.sp.ptr) / ValuePointer::SIZE).times do |i|
+      value = sp - i
+
+      print '%20s' % ptr_description(value)
+      print "#{ptr_inspect}: "
+      if ep.ptr == value.ptr # FIXME: topのフレームだとepが変なところにあるからバグる
+        print "(#{frame_type}) #{frame_flag}"
+      elsif (ep - 1).ptr == value.ptr
+        print "(#{frame_type})"
+      elsif (ep - 2).ptr == value.ptr
+        print "(#{frame_type})"
+      else
+        print value.to_rb.inspect
+      end
+      puts
     end
-    puts ' \\'
+  end
+
+  private
+
+  def ptr_description(value)
+    case value.ptr
+    when sp.ptr then "(#{ptr_inspect}) sp --> "
+    when ep.ptr then "(#{ptr_inspect}) ep --> "
+    else ''
+    end
   end
 end
 
 x = 123
 y = 456
 cfp = ControlFramePointer.current!
-cfp.print_frame! # topのフレームはepがおかしいのかもしれぬ
+# cfp.print_frame! # topのフレームはepがおかしいのかもしれぬ
 
 p cfp
 p cfp.self #=> main
@@ -69,7 +98,7 @@ puts
   p (cfp2.ep - 5).to_rb
   p (cfp2.ep - 6).to_rb
   cfp2.print_frame!
-  (cfp2 + 1).print_frame!
-  (cfp2 + 2).print_frame!
+  cfp2.down.print_frame!
+  # cfp2.down.down.print_frame!
 end
 
