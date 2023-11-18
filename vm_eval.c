@@ -2716,6 +2716,7 @@ Init_vm_eval(void)
     // debug
     rb_define_global_function("print_stack!", print_stack, 0);
 
+    // TODO: toplevelのprint_frame
     // TODO: Gem化
     // TODO: ensemble_castで使う
 
