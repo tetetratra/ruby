@@ -2581,20 +2581,20 @@ static VALUE current(VALUE _self) {
 
 static VALUE cControlFramePointer_self(VALUE self) {
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   return cfp->self;
 }
 
 static VALUE cControlFramePointer_pc(VALUE self) {
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   VALUE pc = LONG2FIX((long)cfp->pc);
   return rb_class_new_instance(1, &pc, rb_cValuePointer);
 }
 
 static VALUE cControlFramePointer_sp(VALUE self) {
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   VALUE *sp_addr = cfp->sp;
   VALUE sp_rb = LONG2FIX((long)sp_addr);
   return rb_class_new_instance(1, &sp_rb, rb_cValuePointer);
@@ -2602,7 +2602,7 @@ static VALUE cControlFramePointer_sp(VALUE self) {
 
 static VALUE cControlFramePointer_ep(VALUE self) {
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   VALUE *ep_addr = cfp->ep;
   VALUE ep_rb = LONG2FIX((long)ep_addr);
   return rb_class_new_instance(1, &ep_rb, rb_cValuePointer);
@@ -2610,19 +2610,19 @@ static VALUE cControlFramePointer_ep(VALUE self) {
 
 static VALUE cControlFramePointer_iseq(VALUE self) {
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   return rb_iseqw_new(cfp->iseq);
 }
 
 static VALUE cValuePointer_to_rb(VALUE self) {
-  VALUE *obj = (VALUE *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+  VALUE *obj = (VALUE *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   return *obj;
 }
 
 static VALUE cValuePointer_frame_type(VALUE self) {
   // 参考: vm_frametype_name (vm.c)
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   VALUE *ep_addr = cfp->ep;
   switch (ep_addr[VM_ENV_DATA_INDEX_FLAGS] & VM_FRAME_MAGIC_MASK) {
   case VM_FRAME_MAGIC_METHOD:
@@ -2648,7 +2648,7 @@ static VALUE cValuePointer_frame_type(VALUE self) {
 
 static VALUE cValuePointer_frame_flags(VALUE self) {
   rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@ptr")));
+      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
   VALUE ep = cfp->ep[VM_ENV_DATA_INDEX_FLAGS];
 
   VALUE a = rb_ary_new();

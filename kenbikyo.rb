@@ -1,29 +1,33 @@
 class Pointer
-  attr_reader :ptr
+  attr_reader :addr
 
   SIZE = nil
-  def size = SIZE
+  def self.size = SIZE
 
-  def initialize(ptr)
-    @ptr = ptr
+  def initialize(addr)
+    @addr = addr
   end
 
-  # トップクラスのepのみ値がおかしいから、initialize時に&ffffffffのようなことはできない(しない)
-  def inspect = "#<#{self.class} @ptr=#{ptr_inspect}>"
-  def ptr_inspect = @ptr.to_s(16)[4..]
+  # トップレベルのepは値がおかしいから、initialize時に&ffffffffのようなことはできない(しない)
+  def inspect = "#<#{self.class} @addr=#{addr_inspect}>"
+  def addr_inspect = @addr.to_s(16)[4..]
 
   alias to_s inspect
 
   def +(n)
     raise NotImplementedError if size.nil?
 
-    self.class.new(@ptr + size * n)
+    self.class.new(@addr + size * n)
   end
 
   def -(n)
     raise NotImplementedError if size.nil?
 
-    self.class.new(@ptr - size * n)
+    self.class.new(@addr - size * n)
+  end
+
+  def ==(other)
+    @addr == other.addr
   end
 end
 
@@ -46,29 +50,29 @@ class ControlFramePointer < Pointer
   def down = self + 1
 
   def print_frame!
-    ((sp.ptr - down.sp.ptr) / ValuePointer::SIZE).times do |i|
-      value = sp - i
-      puts "| #{pointer_description(value)} #{ptr_inspect}: #{value_description(value)}"
+    ((sp.addr - down.sp.addr) / ValuePointer::SIZE).times do |i|
+      value_pointer = sp - i
+      puts "| #{pointer_description(value_pointer)} #{value_pointer.addr_inspect}: #{value_description(value_pointer)}"
     end
   end
 
   private
 
-  def pointer_description(value)
-    format('%16s', case value.ptr
-                   when sp.ptr then "#{ptr_inspect}: sp -->"
-                   when ep.ptr then "#{ptr_inspect}: ep -->"
+  def pointer_description(value_pointer)
+    format('%16s', case value_pointer
+                   when sp then "#{addr_inspect}: sp -->"
+                   when ep then "#{addr_inspect}: ep -->"
                    else ''
                    end)
   end
 
-  def value_description(value)
+  def value_description(value_pointer)
     # FIXME: topのフレームだとepが変なところにあるからバグる
-    case value.ptr
-    when       ep.ptr then "(#{frame_type}) #{frame_flags.join(', ')}"
-    when (ep - 1).ptr then "(#{frame_type})"
-    when (ep - 2).ptr then "(#{frame_type})"
-    else value.to_rb.inspect
+    case value_pointer
+    when       ep then "(#{frame_type}) #{frame_flags.join(', ')}"
+    when (ep - 1) then "(#{frame_type})"
+    when (ep - 2) then "(#{frame_type})"
+    else value_pointer.to_rb.inspect
     end
   end
 end

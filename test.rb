@@ -4,6 +4,8 @@ x = 'x'
 y = 'y'
 frame_toplevel = ControlFramePointer.current!
 
+# frame_toplevel.print_frame!
+
 puts
 puts '<toplevel>'
 puts "frame_toplevel.self.inspect: #{frame_toplevel.self.inspect}"
