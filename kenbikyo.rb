@@ -5,12 +5,13 @@ class Pointer
   def self.size = SIZE
 
   def initialize(addr)
+    raise TypeError unless addr.class == Integer
+
     @addr = addr
   end
 
-  # トップレベルのepは値がおかしいから、initialize時に&ffffffffのようなことはできない(しない)
   def inspect = "#<#{self.class} @addr=#{addr_inspect}>"
-  def addr_inspect = @addr.to_s(16)[4..]
+  def addr_inspect = @addr.to_s(16)
 
   alias to_s inspect
 
@@ -32,17 +33,11 @@ class Pointer
 end
 
 class ValuePointer < Pointer
-  # p methods(false) # => []
-  # p instance_methods(false) # => [:to_rb]
-
   SIZE = 8
   def size = SIZE
 end
 
 class ControlFramePointer < Pointer
-  # p methods(false) # => [:current!]
-  # p instance_methods(false) # => [:frame_flags, :self, :pc, :sp, :ep, :iseq, :frame_type]
-
   SIZE = 64
   def size = SIZE
 
@@ -50,39 +45,76 @@ class ControlFramePointer < Pointer
   def down = self + 1
 
   def print_frame!
-    ((sp.addr - down.sp.addr) / ValuePointer::SIZE).times do |i|
-      value_pointer = sp - i
-      puts "| #{pointer_description(value_pointer)} #{value_pointer.addr_inspect}: #{value_description(value_pointer)}"
+    puts '[[frame description]]'
+    puts '    frame:'
+    puts frame_description.lines.map { "        #{_1}" }.join
+    puts '    iseq:' if iseq
+    puts iseq_description.lines.map { "        #{_1}" }.join if iseq
+    puts '    sp:'
+    ((sp.addr - bp.addr) / ValuePointer::SIZE).times do |i|
+      puts "        #{value_description(sp - i)}"
+    end
+    puts '    ep:'
+    (3 + local_size).times do |i|
+      puts "        #{value_description(ep - i)}"
     end
   end
 
   private
 
-  def pointer_description(value_pointer)
-    format('%16s', case value_pointer
-                   when sp then "#{addr_inspect}: sp -->"
-                   when ep then "#{addr_inspect}: ep -->"
-                   else ''
-                   end)
+  def local_size = iseq&.local_size.to_i
+
+  def bp = down.sp + local_size + 3 # 参考: vm_base_ptr
+
+  def frame_description
+    <<~DESC
+      pc: #{pc.addr_inspect} (program counter)
+      sp: #{sp.addr_inspect} (stack pointer)
+      bp: #{bp.addr_inspect} (base pointer)
+      ep: #{ep.addr_inspect} (environment pointer)
+      self: #{send(:self).inspect}
+      iseq: #{iseq.inspect}
+    DESC
+  end
+
+  def iseq_description
+    <<~DESC
+      label: #{iseq.label}
+      type: #{iseq.type}
+      local_size: #{iseq.local_size}
+      locals: #{iseq.locals}
+      args: #{iseq.args}
+    DESC
   end
 
   def value_description(value_pointer)
-    # FIXME: topのフレームだとepが変なところにあるからバグる
-    case value_pointer
-    when       ep then "(#{frame_type}) #{frame_flags.join(', ')}"
-    when (ep - 1) then "(#{frame_type})"
-    when (ep - 2) then "(#{frame_type})"
-    else value_pointer.to_rb.inspect
-    end
+    body = case value_pointer
+           when       ep then "{{ frame_type: #{frame_type.inspect}. frame_flags: #{frame_flags}. env_flags: #{env_flags} }}"
+           when (ep - 1) then "{{ block_handler_type: #{block_handler_type.inspect} }}" # specval (block handler), rb_block_handler_type
+           when (ep - 2) then "{{ method_entry_or_cref: TODO }}"
+           else value_pointer.to_rb.inspect
+           end
+    "#{value_pointer.addr_inspect}: #{body}"
   end
 end
 
-class IseqPointer < Pointer
-  # p methods(false) # => []
-  # p instance_methods(false) # => []
-end
-
 class RubyVM::InstructionSequence
+  def magic = to_a[0]
+  def major_version = to_a[1]
+  def minor_version = to_a[2]
+  def format_type = to_a[3]
+  def misc = to_a[4]
+  def arg_size = misc[:arg_size]
+  def local_size = misc[:local_size]
+  def stack_max = misc[:stack_max]
+  def label = to_a[5]
+  def path = to_a[6]
+  def absolute_path = to_a[7]
+  def first_lineno = to_a[8]
+  def type = to_a[9]
+  def locals = to_a[10]
+  def args = to_a[11]
+  def catch_table = to_a[12]
   def bytecode = to_a[13]
 
   def bytecode=(bytecode)

@@ -2611,7 +2611,7 @@ static VALUE cControlFramePointer_ep(VALUE self) {
 static VALUE cControlFramePointer_iseq(VALUE self) {
   rb_control_frame_t *cfp =
       (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
-  return rb_iseqw_new(cfp->iseq);
+  return cfp->iseq ? rb_iseqw_new(cfp->iseq) : Qnil;
 }
 
 static VALUE cValuePointer_to_rb(VALUE self) {
@@ -2626,69 +2626,98 @@ static VALUE cValuePointer_frame_type(VALUE self) {
   VALUE *ep_addr = cfp->ep;
   switch (ep_addr[VM_ENV_DATA_INDEX_FLAGS] & VM_FRAME_MAGIC_MASK) {
   case VM_FRAME_MAGIC_METHOD:
-    return rb_str_new("method", 6);
+    return rb_str_new("METHOD", 6);
   case VM_FRAME_MAGIC_BLOCK:
-    return rb_str_new("block", 5);
+    return rb_str_new("BLOCK", 5);
   case VM_FRAME_MAGIC_CLASS:
-    return rb_str_new("class", 5);
+    return rb_str_new("CLASS", 5);
   case VM_FRAME_MAGIC_TOP:
-    return rb_str_new("top", 3);
+    return rb_str_new("TOP", 3);
   case VM_FRAME_MAGIC_CFUNC:
-    return rb_str_new("cfunc", 5);
+    return rb_str_new("CFUNC", 5);
   case VM_FRAME_MAGIC_IFUNC:
-    return rb_str_new("ifunc", 5);
+    return rb_str_new("IFUNC", 5);
   case VM_FRAME_MAGIC_EVAL:
-    return rb_str_new("eval", 4);
+    return rb_str_new("EVAL", 4);
   case VM_FRAME_MAGIC_RESCUE:
-    return rb_str_new("rescue", 6);
+    return rb_str_new("RESCUE", 6);
   default:
     return Qnil;
   }
 }
 
 static VALUE cValuePointer_frame_flags(VALUE self) {
-  rb_control_frame_t *cfp =
-      (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
-  VALUE ep = cfp->ep[VM_ENV_DATA_INDEX_FLAGS];
-
-  VALUE a = rb_ary_new();
-  // FRAME_FLAG
-  if (ep & VM_FRAME_FLAG_FINISH) {
-    rb_ary_push(a, rb_str_new("finish", 6));
-  }
-  if (ep & VM_FRAME_FLAG_BMETHOD) {
-    rb_ary_push(a, rb_str_new("bmethod", 7));
-  }
-  if (ep & VM_FRAME_FLAG_CFRAME) {
-    rb_ary_push(a, rb_str_new("cframe", 6));
-  }
-  if (ep & VM_FRAME_FLAG_LAMBDA) {
-    rb_ary_push(a, rb_str_new("lambda", 6));
-  }
-  if (ep & VM_FRAME_FLAG_MODIFIED_BLOCK_PARAM) {
-    rb_ary_push(a, rb_str_new("modified_block_param", 20));
-  }
-  if (ep & VM_FRAME_FLAG_CFRAME_KW) {
-    rb_ary_push(a, rb_str_new("cframe_kw", 9));
-  }
-  if (ep & VM_FRAME_FLAG_PASSED) {
-    rb_ary_push(a, rb_str_new("passed", 6));
-  }
-  // ENV_FLAG
-  if (ep & VM_ENV_FLAG_LOCAL) {
-    rb_ary_push(a, rb_str_new("local", 5));
-  }
-  if (ep & VM_ENV_FLAG_ESCAPED) {
-    rb_ary_push(a, rb_str_new("escaped", 7));
-  }
-  if (ep & VM_ENV_FLAG_WB_REQUIRED) {
-    rb_ary_push(a, rb_str_new("wb_required", 11));
-  }
-  if (ep & VM_ENV_FLAG_ISOLATED) {
-    rb_ary_push(a, rb_str_new("isolated", 8));
-  }
-  return a;
+    rb_control_frame_t *cfp =
+        (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
+    VALUE ep = cfp->ep[VM_ENV_DATA_INDEX_FLAGS];
+    VALUE a = rb_ary_new();
+    if (ep & VM_FRAME_FLAG_FINISH) {
+        rb_ary_push(a, rb_str_new("FINISH", 6));
+    }
+    if (ep & VM_FRAME_FLAG_BMETHOD) {
+        rb_ary_push(a, rb_str_new("BMETHOD", 7));
+    }
+    if (ep & VM_FRAME_FLAG_CFRAME) {
+        rb_ary_push(a, rb_str_new("CFRAME", 6));
+    }
+    if (ep & VM_FRAME_FLAG_LAMBDA) {
+        rb_ary_push(a, rb_str_new("LAMBDA", 6));
+    }
+    if (ep & VM_FRAME_FLAG_MODIFIED_BLOCK_PARAM) {
+        rb_ary_push(a, rb_str_new("MODIFIED_BLOCK_PARAM", 20));
+    }
+    if (ep & VM_FRAME_FLAG_CFRAME_KW) {
+        rb_ary_push(a, rb_str_new("CFRAME_KW", 9));
+    }
+    if (ep & VM_FRAME_FLAG_PASSED) {
+        rb_ary_push(a, rb_str_new("PASSED", 6));
+    }
+    return a;
 }
+
+static VALUE cValuePointer_env_flags(VALUE self) {
+    rb_control_frame_t *cfp =
+        (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
+    VALUE ep = cfp->ep[VM_ENV_DATA_INDEX_FLAGS];
+    VALUE a = rb_ary_new();
+    if (ep & VM_ENV_FLAG_LOCAL) {
+        rb_ary_push(a, rb_str_new("LOCAL", 5));
+    }
+    if (ep & VM_ENV_FLAG_ESCAPED) {
+        rb_ary_push(a, rb_str_new("ESCAPED", 7));
+    }
+    if (ep & VM_ENV_FLAG_WB_REQUIRED) {
+        rb_ary_push(a, rb_str_new("WB_REQUIRED", 11));
+    }
+    if (ep & VM_ENV_FLAG_ISOLATED) {
+        rb_ary_push(a, rb_str_new("ISOLATED", 8));
+    }
+    return a;
+}
+
+static VALUE
+cValuePointer_block_handler_type(VALUE self)
+{
+    rb_control_frame_t *cfp =
+          (rb_control_frame_t *)FIX2LONG(rb_attr_get(self, rb_intern("@addr")));
+    VALUE block_handler = rb_vm_frame_block_handler(cfp);
+
+    if (block_handler == VM_BLOCK_HANDLER_NONE) { return Qnil; }
+
+    if (VM_BH_ISEQ_BLOCK_P(block_handler)) {
+        return rb_str_new("ISEQ", 4);
+    }
+    else if (VM_BH_IFUNC_P(block_handler)) {
+        return rb_str_new("IFUNC", 5);
+    }
+    else if (SYMBOL_P(block_handler)) {
+        return rb_str_new("SYMBOL", 6);
+    }
+    else {
+        return rb_str_new("ELSE", 4);
+    }
+}
+
 
 void
 Init_vm_eval(void)
@@ -2698,7 +2727,6 @@ Init_vm_eval(void)
 
     rb_cValuePointer        = rb_define_class("ValuePointer",        rb_cPointer);
     rb_cControlFramePointer = rb_define_class("ControlFramePointer", rb_cPointer);
-    rb_cIseqPointer         = rb_define_class("IseqPointer",         rb_cPointer);
 
     // ControlFramePointer
     rb_define_singleton_method(rb_cControlFramePointer, "current!", current, 0);
@@ -2709,6 +2737,11 @@ Init_vm_eval(void)
     rb_define_method(rb_cControlFramePointer, "iseq",        cControlFramePointer_iseq, 0);
     rb_define_method(rb_cControlFramePointer, "frame_type",  cValuePointer_frame_type,  0);
     rb_define_method(rb_cControlFramePointer, "frame_flags", cValuePointer_frame_flags, 0);
+    rb_define_method(rb_cControlFramePointer, "env_flags", cValuePointer_env_flags, 0);
+
+    rb_define_method(rb_cControlFramePointer, "block_handler_type", cValuePointer_block_handler_type, 0);
+
+
 
     // ValuePointer
     rb_define_method(rb_cValuePointer, "to_rb", cValuePointer_to_rb, 0);
@@ -2716,9 +2749,10 @@ Init_vm_eval(void)
     // debug
     rb_define_global_function("print_stack!", print_stack, 0);
 
-    // TODO: toplevelのprint_frame
+    // TODO: ep, ep-1, ep-2 の詳細
     // TODO: Gem化
     // TODO: ensemble_castで使う
+    // TODO: ヒープ全体を出力するメソッド
 
     rb_define_global_function("eval", rb_f_eval, -1);
     rb_define_global_function("local_variables", rb_f_local_variables, 0);
