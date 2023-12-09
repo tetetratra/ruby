@@ -44,58 +44,87 @@ class ControlFramePointer < Pointer
   def up = self - 1
   def down = self + 1
 
-  def print_frame!
-    puts '[[frame description]]'
-    puts '    frame:'
-    puts frame_description.lines.map { "        #{_1}" }.join
-    puts '    iseq:' if iseq
-    puts iseq_description.lines.map { "        #{_1}" }.join if iseq
-    puts '    sp:'
-    ((sp.addr - bp.addr) / ValuePointer::SIZE).times do |i|
-      puts "        #{value_description(sp - i)}"
-    end
-    puts '    ep:'
-    (3 + local_size).times do |i|
-      puts "        #{value_description(ep - i)}"
+  private
+
+  def local_size = iseq&.local_size.to_i
+
+  def bp = down.sp + local_size + 3 + (iseq&.type == :method ? 1 : 0) # 参考: vm_base_ptr
+end
+
+module ControlFramePointer::PrettyPrint
+  def pretty_print(pp)
+    pp.object_group(self) do
+      pp.group(2) do
+        pp.breakable
+        pp.group(2, 'frame: {', '}') do
+          pp.breakable
+          pp.text "program_counter: #{pc.addr_inspect}"
+          pp.comma_breakable
+          pp.text "stack_pointer: #{sp.addr_inspect}"
+          pp.comma_breakable
+          pp.text "base_pointer: #{bp.addr_inspect}"
+          pp.comma_breakable
+          pp.text "environment_pointer: #{ep.addr_inspect}"
+          pp.comma_breakable
+          pp.text "self: #{send(:self).inspect}"
+          pp.comma_breakable
+          pp.text "iseq: #{iseq.inspect}"
+        end
+
+        pp.breakable
+        pp.group(2, 'iseq: {', '}') do
+          next unless iseq # breakだと閉じカッコが付かないのでnext
+
+          pp.breakable
+          pp.text "label: #{iseq.label}"
+          pp.comma_breakable
+          pp.text "type: #{iseq.type}"
+          pp.comma_breakable
+          pp.text "local_size: #{iseq.local_size}"
+          pp.comma_breakable
+          pp.text "locals: #{iseq.locals}"
+          pp.comma_breakable
+          pp.text "args: #{iseq.args}"
+        end
+
+        pp.breakable
+        pp.group(2, 'sp: [', ']') do
+          pp.breakable
+          stack_value_size = (sp.addr - bp.addr) / ValuePointer::SIZE
+          stack_value_size.times do |i|
+            pp.text "#{value_description(sp - i)}"
+            pp.comma_breakable unless i == stack_value_size - 1
+          end
+        end
+
+        pp.breakable
+        pp.group(2, 'ep: [', ']') do
+          pp.breakable
+          env_value_size = 3 + local_size
+          env_value_size.times do |i|
+            pp.text "#{value_description(ep - i)}"
+            pp.comma_breakable unless i == env_value_size - 1
+          end
+        end
+      end
     end
   end
 
   private
 
-  def local_size = iseq&.local_size.to_i
-
-  def bp = down.sp + local_size + 3 # 参考: vm_base_ptr
-
-  def frame_description
-    <<~DESC
-      pc: #{pc.addr_inspect} (program counter)
-      sp: #{sp.addr_inspect} (stack pointer)
-      bp: #{bp.addr_inspect} (base pointer)
-      ep: #{ep.addr_inspect} (environment pointer)
-      self: #{send(:self).inspect}
-      iseq: #{iseq.inspect}
-    DESC
-  end
-
-  def iseq_description
-    <<~DESC
-      label: #{iseq.label}
-      type: #{iseq.type}
-      local_size: #{iseq.local_size}
-      locals: #{iseq.locals}
-      args: #{iseq.args}
-    DESC
-  end
-
   def value_description(value_pointer)
     body = case value_pointer
-           when       ep then "{{ frame_type: #{frame_type.inspect}. frame_flags: #{frame_flags}. env_flags: #{env_flags} }}"
-           when (ep - 1) then "{{ block_handler_type: #{block_handler_type.inspect} }}" # specval (block handler), rb_block_handler_type
-           when (ep - 2) then "{{ method_entry_or_cref: TODO }}"
+           when       ep then "(env_data: flags) frame_type: #{frame_type.inspect}, frame_flags: #{frame_flags}, env_flags: #{env_flags}"
+           when (ep - 1) then "(env_data: specval) block_handler_type: #{block_handler_type.inspect}"
+           when (ep - 2) then "(env_data: me_or_cref) TODO"
            else value_pointer.to_rb.inspect
            end
     "#{value_pointer.addr_inspect}: #{body}"
   end
+end
+
+class ControlFramePointer
+  include ControlFramePointer::PrettyPrint
 end
 
 class RubyVM::InstructionSequence
